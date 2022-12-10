@@ -1,0 +1,38 @@
+{
+	"build_systems": [
+		{
+			"name": "Run",
+			"target": "zig_build",
+			"cancel": {
+				"kill": true,
+			},
+			"selector": "source.zig",
+			"keyfiles": [
+				"build.zig"
+			],
+			"build": {
+				"step": "run",
+			},
+		}
+	],
+	"settings": {
+		"zig.fmt.on_save": false,
+		"LSP": {
+			"zig": {
+				"disabled_capabilities": {
+					"textDocumentSync": {
+						"willSaveWaitUntil": true,
+					},
+				},
+			},
+			"LSP-pyright": {
+				"enabled": false,
+			},
+		},
+	},
+	"folders": [
+		{
+			"path": ".",
+		},
+	],
+}
