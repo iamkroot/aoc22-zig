@@ -14,5 +14,6 @@ pub fn main() !void {
     const allocator = std.heap.page_allocator;
     const dataDirPath = try std.fs.realpathAlloc(allocator, rootPath("/data"));
     const dataDir = try std.fs.openDirAbsolute(dataDirPath, .{});
-    try day1.day1(dataDir);
+    try day1.part1(dataDir);
+    try day1.part2(dataDir);
 }
