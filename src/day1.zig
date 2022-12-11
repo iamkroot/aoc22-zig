@@ -1,17 +1,5 @@
 const std = @import("std");
-
-fn read_input(dataDir: std.fs.Dir, allocator: std.mem.Allocator) ![]const u8 {
-    const inputDir = try dataDir.makeOpenPath("input", .{});
-    const f = try inputDir.openFile("day1.txt", .{ .mode = .read_only });
-    defer f.close();
-
-    const f_stat = try f.stat();
-    const result = try allocator.alloc(u8, f_stat.size);
-    errdefer allocator.free(result);
-    const read_result = try f.read(result);
-    try std.testing.expect(read_result > 0);
-    return result;
-}
+const read_input = @import("input.zig").read_input;
 
 /// Iterator over the total calories present with one elf.
 const ElfCaloriesIterator = struct {
@@ -52,7 +40,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
 
-    const result = try read_input(dataDir, allocator);
+    const result = try read_input(dataDir, allocator, "day1.txt");
 
     var maxval: u64 = 0;
     var iter = ElfCaloriesIterator.init(result);
@@ -67,7 +55,7 @@ pub fn part2(dataDir: std.fs.Dir) !void {
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
 
-    const result = try read_input(dataDir, allocator);
+    const result = try read_input(dataDir, allocator, "day1.txt");
 
     var iter = ElfCaloriesIterator.init(result);
     var maxval1: u64 = 0;
