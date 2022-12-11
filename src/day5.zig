@@ -140,6 +140,23 @@ pub fn part1(dataDir: std.fs.Dir) !void {
 
     // empty line
     _ = lines.next().?;
-
     std.debug.print("numStacks: {}\n{any}\n", .{ numStacks, stacks });
+
+    var intbuf = [_]u8{0} ** 3;
+    while(lines.next()) |line| {
+        std.debug.print("line: {s}\n", .{ line });
+        var stream = std.io.fixedBufferStream(line);
+        var reader = stream.reader();
+        try reader.skipBytes(5, .{});
+        const val = try reader.readUntilDelimiter(&intbuf, ' ');
+        const numMove = try std.fmt.parseUnsigned(u32, val, 10);
+        try reader.skipBytes(5, .{});
+        const val2 = try reader.readUntilDelimiter(&intbuf, ' ');
+        const from = try std.fmt.parseUnsigned(u32, val2, 10);
+        // const val3 = (try reader.readUntilDelimiterOrEof(&intbuf, '\n')).?;
+        try reader.skipBytes(3, .{});
+        const n = try reader.readAll(&intbuf);
+        const to = try std.fmt.parseUnsigned(u32, intbuf[0..n], 10);
+        std.debug.print("x: {} {} {}\n", .{ numMove, from, to });
+    }
 }
