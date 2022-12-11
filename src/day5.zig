@@ -11,6 +11,8 @@ fn parseStackLine(line: []const u8, numStacks: u8, list: []u8) void {
 const Stacks = struct {
     numStacks: u8,
     stacks: []std.ArrayList(u8),
+    maxHeight: u32 = 0,
+    constructed: bool = false,
 
     fn init(numStacks: u8, allocator: std.mem.Allocator) !Stacks {
         var stacks = try allocator.alloc(std.ArrayList(u8), numStacks);
@@ -39,6 +41,20 @@ const Stacks = struct {
         }
     }
 
+    /// Called when all stack lines have been parsed.
+    fn done(self: *Stacks) void {
+        var maxHeight: u32 = 0;
+        for (self.stacks) |stack| {
+            maxHeight = std.math.max(maxHeight, @intCast(u32, stack.items.len));
+        }
+        self.maxHeight = maxHeight;
+        // reverse the stacks so that we can pop
+        for(self.stacks) | *stack | {
+            std.mem.reverse(u8, stack.items);
+        }
+        self.constructed = true;
+    }
+
     pub fn format(
         self: Stacks,
         comptime fmt: []const u8,
@@ -49,8 +65,13 @@ const Stacks = struct {
         _ = options;
 
         var maxHeight: u32 = 0;
-        for (self.stacks) |stack| {
-            maxHeight = std.math.max(maxHeight, @intCast(u32, stack.items.len));
+        if (self.maxHeight == 0) {
+            // if we haven't calculated the max height yet, do it.
+            for (self.stacks) |stack| {
+                maxHeight = std.math.max(maxHeight, @intCast(u32, stack.items.len));
+            }
+        } else {
+            maxHeight = self.maxHeight;
         }
 
         var height = maxHeight;
@@ -58,7 +79,13 @@ const Stacks = struct {
         while (height > 0) : (height -= 1) {
             for (self.stacks) |stack, stackNum| {
                 if (stack.items.len >= height) {
-                    const ch = stack.items[stack.items.len - height];
+                    var idx: usize = undefined;
+                    if (!self.constructed) {
+                        idx = stack.items.len - height;
+                    } else {
+                        idx = height - 1;
+                    }
+                    const ch = stack.items[idx];
                     try writer.print("[{c}]", .{ch});
                 } else {
                     try writer.writeAll("   ");
@@ -109,8 +136,10 @@ pub fn part1(dataDir: std.fs.Dir) !void {
         }
     }
     allocator.free(linelist);
+    stacks.done();
 
-    lines.next();
+    // empty line
+    _ = lines.next().?;
 
     std.debug.print("numStacks: {}\n{any}\n", .{ numStacks, stacks });
 }
