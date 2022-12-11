@@ -15,5 +15,5 @@ pub fn main() !void {
     const dataDirPath = try std.fs.realpathAlloc(allocator, rootPath("/data"));
     const dataDir = try std.fs.openDirAbsolute(dataDirPath, .{});
     try day4.part1(dataDir);
-    // try day4.part2(dataDir);
+    try day4.part2(dataDir);
 }

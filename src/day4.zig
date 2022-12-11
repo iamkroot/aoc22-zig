@@ -47,3 +47,20 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     }
     std.debug.print("overlapCount: {}\n", .{overlapCount});
 }
+
+pub fn part2(dataDir: std.fs.Dir) !void {
+    var buffer: [11382]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+    const input = try read_input(dataDir, allocator, "day4.txt");
+    var lines = std.mem.split(u8, input, "\n");
+    var overlapCount: u32 = 0;
+    while (lines.next()) |line| {
+        const pair = parseLine(line);
+        if (!((pair.start1 > pair.end2) or (pair.end1 < pair.start2)))
+        {
+            overlapCount += 1;
+        }
+    }
+    std.debug.print("overlapCount: {}\n", .{overlapCount});
+}
