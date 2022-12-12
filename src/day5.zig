@@ -55,6 +55,27 @@ const Stacks = struct {
         self.constructed = true;
     }
 
+    fn move(self: *Stacks, numMove: u32, from: u32, to: u32) !void {
+        std.debug.assert(0 < from and from < self.numStacks + 1);
+        std.debug.assert(0 < to and to < self.numStacks + 1);
+        std.debug.assert(numMove <= self.stacks[from - 1].items.len);
+        var i: u32 = 0;
+        var fromStack = &self.stacks[from - 1];
+        var toStack = &self.stacks[to - 1];
+        while (i < numMove) : (i += 1) {
+            const val = fromStack.pop();
+            try toStack.append(val);
+        }
+    }
+
+    fn top(self: Stacks, allocator: std.mem.Allocator) ![] const u8 {
+        var vals = try allocator.alloc(u8, self.numStacks);
+        for (self.stacks) |stack, i| {
+            vals[i] = stack.items[stack.items.len-1];
+        }
+        return vals;
+    }
+
     pub fn format(
         self: Stacks,
         comptime fmt: []const u8,
@@ -110,7 +131,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     var buffer: [14000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day5_dummy.txt");
+    const input = try read_input(dataDir, allocator, "day5.txt");
     var lines = std.mem.split(u8, input, "\n");
 
     const head = lines.next().?;
@@ -153,10 +174,10 @@ pub fn part1(dataDir: std.fs.Dir) !void {
         try reader.skipBytes(5, .{});
         const val2 = try reader.readUntilDelimiter(&intbuf, ' ');
         const from = try std.fmt.parseUnsigned(u32, val2, 10);
-        // const val3 = (try reader.readUntilDelimiterOrEof(&intbuf, '\n')).?;
         try reader.skipBytes(3, .{});
         const n = try reader.readAll(&intbuf);
         const to = try std.fmt.parseUnsigned(u32, intbuf[0..n], 10);
-        std.debug.print("x: {} {} {}\n", .{ numMove, from, to });
+        try stacks.move(numMove, from, to);
     }
+    std.debug.print("top: {s}\n", .{try stacks.top(allocator)});
 }
