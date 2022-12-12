@@ -49,7 +49,7 @@ const Stacks = struct {
         }
         self.maxHeight = maxHeight;
         // reverse the stacks so that we can pop
-        for(self.stacks) | *stack | {
+        for (self.stacks) |*stack| {
             std.mem.reverse(u8, stack.items);
         }
         self.constructed = true;
@@ -68,10 +68,21 @@ const Stacks = struct {
         }
     }
 
-    fn top(self: Stacks, allocator: std.mem.Allocator) ![] const u8 {
+    fn move2(self: *Stacks, numMove: u32, from: u32, to: u32) !void {
+        std.debug.assert(0 < from and from < self.numStacks + 1);
+        std.debug.assert(0 < to and to < self.numStacks + 1);
+        std.debug.assert(numMove <= self.stacks[from - 1].items.len);
+        var fromStack = &self.stacks[from - 1];
+        var toStack = &self.stacks[to - 1];
+        var i: u32 = @intCast(u32, fromStack.items.len) - numMove;
+        try toStack.appendSlice(fromStack.items[i..]);
+        try fromStack.resize(i);
+    }
+
+    fn top(self: Stacks, allocator: std.mem.Allocator) ![]const u8 {
         var vals = try allocator.alloc(u8, self.numStacks);
         for (self.stacks) |stack, i| {
-            vals[i] = stack.items[stack.items.len-1];
+            vals[i] = stack.items[stack.items.len - 1];
         }
         return vals;
     }
@@ -127,7 +138,7 @@ const Stacks = struct {
     }
 };
 
-pub fn part1(dataDir: std.fs.Dir) !void {
+pub fn run(dataDir: std.fs.Dir, ispart1: bool) !void {
     var buffer: [14000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
@@ -164,8 +175,8 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     std.debug.print("numStacks: {}\n{any}\n", .{ numStacks, stacks });
 
     var intbuf = [_]u8{0} ** 3;
-    while(lines.next()) |line| {
-        std.debug.print("line: {s}\n", .{ line });
+    while (lines.next()) |line| {
+        // std.debug.print("line: {s}\n", .{line});
         var stream = std.io.fixedBufferStream(line);
         var reader = stream.reader();
         try reader.skipBytes(5, .{});
@@ -177,7 +188,21 @@ pub fn part1(dataDir: std.fs.Dir) !void {
         try reader.skipBytes(3, .{});
         const n = try reader.readAll(&intbuf);
         const to = try std.fmt.parseUnsigned(u32, intbuf[0..n], 10);
-        try stacks.move(numMove, from, to);
+        if (ispart1) {
+            try stacks.move(numMove, from, to);
+        } else {
+            try stacks.move2(numMove, from, to);
+
+        }
     }
     std.debug.print("top: {s}\n", .{try stacks.top(allocator)});
+}
+
+pub fn part1(dataDir: std.fs.Dir) !void {
+    // try run(dataDir, true);
+    _ = dataDir;
+}
+
+pub fn part2(dataDir: std.fs.Dir) !void {
+    try run(dataDir, false);
 }
