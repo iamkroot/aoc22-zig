@@ -37,8 +37,27 @@ fn getSmallNodes(dt: *DirTree, finalSum: *u64) u64 {
             },
         }
     }
-    if(nodeSize <= 100000) {
+    if (nodeSize <= 100000) {
         finalSum.* += nodeSize;
+    }
+    return nodeSize;
+}
+
+fn getAllNodes(dt: *DirTree, targetSize: ?u64, foundSize: ?*u64) u64 {
+    var it = dt.iterator();
+    var nodeSize: u64 = 0;
+    while (it.next()) |entry| {
+        switch (entry.value_ptr.*) {
+            .dir => |d| {
+                nodeSize += getAllNodes(d, targetSize, foundSize);
+            },
+            .file => |size| {
+                nodeSize += size;
+            },
+        }
+    }
+    if (targetSize != null and foundSize != null and nodeSize >= targetSize.? and nodeSize < foundSize.?.*) {
+        foundSize.?.* = nodeSize;
     }
     return nodeSize;
 }
@@ -58,8 +77,7 @@ fn addDir(allocator: std.mem.Allocator, rootDir: *DirTree, dir: []const u8) !*Di
             if (!gop.found_existing) {
                 gop.value_ptr.* = DirEntry{ .dir = try allocator.create(DirTree) };
                 gop.value_ptr.dir.* = DirTree.init(allocator);
-            } else {
-            }
+            } else {}
             nodeIter = gop.value_ptr.dir;
         }
     }
@@ -89,23 +107,19 @@ fn dirnameWithTrailSlashPosix(path: []const u8) ?[]const u8 {
     if (end_index == 0)
         return null;
 
-    if (path[end_index-1] == '/')
-        {return path[0..end_index];}
-    else
-        {return path[0..end_index+1];}
+    if (path[end_index - 1] == '/') {
+        return path[0..end_index];
+    } else {
+        return path[0 .. end_index + 1];
+    }
 }
 
-
-pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [108000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day7.txt");
+fn genTree(allocator: std.mem.Allocator, input: []const u8) !DirTree {
     var iter = std.mem.split(u8, std.mem.trim(u8, input, " \n"), "$ ");
     var curDir: []const u8 = undefined;
     var curDirNode: *DirTree = undefined;
 
-    var rootDir2 = DirTree.init(allocator);
+    var rootDir = DirTree.init(allocator);
     while (iter.next()) |cmd| {
         if (cmd.len == 0) {
             continue;
@@ -118,18 +132,17 @@ pub fn part1(dataDir: std.fs.Dir) !void {
                 curDir = cmdLine[3..];
             } else if (cmdLine.len >= 5 and std.mem.eql(u8, cmdLine[3..5], "..")) {
                 curDir = dirnameWithTrailSlashPosix(curDir).?;
-
             } else {
                 curDir = try joinDir(allocator, curDir, cmdLine[3..]);
             }
-            curDirNode = try addDir(allocator, &rootDir2, curDir);
+            curDirNode = try addDir(allocator, &rootDir, curDir);
         } else {
             var i: u16 = 0;
             while (lines.next()) |line| : (i += 1) {
                 if (std.mem.startsWith(u8, line, "dir ")) {
                     const d = try joinDir(allocator, curDir, line[4..]);
                     _ = d;
-                    // _ = try addDir(allocator, &rootDir2, d);
+                    // _ = try addDir(allocator, &rootDir, d);
                 } else {
                     var parts = std.mem.split(u8, line, " ");
                     const sizeS = parts.next().?;
@@ -140,16 +153,36 @@ pub fn part1(dataDir: std.fs.Dir) !void {
             }
         }
     }
-    printDT(&rootDir2, 0);
+    return rootDir;
+}
+
+pub fn part1(dataDir: std.fs.Dir) !void {
+    var buffer: [108000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+    const input = try read_input(dataDir, allocator, "day7.txt");
+    var rootDir = try genTree(allocator, input);
+
+    // printDT(&rootDir, 0);
     var sum: u64 = 0;
-    _ = getSmallNodes(&rootDir2, &sum);
-    std.debug.print("sum: {}\n", .{ sum });
+    _ = getSmallNodes(&rootDir, &sum);
+    std.debug.print("sum: {}\n", .{sum});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
+    var buffer: [108000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day7_dummy.txt");
-    _ = input;
+    const input = try read_input(dataDir, allocator, "day7.txt");
+    var rootDir = try genTree(allocator, input);
+    // printDT(&rootDir, 0);
+    const TOTAL = 70000000;
+    const MINFREE = 30000000;
+    const rootSize = getAllNodes(&rootDir, null, null);
+    const unusedSpace = TOTAL - rootSize;
+    const targetSize = MINFREE - unusedSpace;
+    var nodeSize: u64 = rootSize;
+    std.debug.print("targetSize: {}\n", .{targetSize});
+    _ = getAllNodes(&rootDir, targetSize, &nodeSize);
+    std.debug.print("nodeSize: {}\n", .{nodeSize});
 }
