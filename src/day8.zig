@@ -1,63 +1,84 @@
 const std = @import("std");
 const read_input = @import("input.zig").read_input;
 
-const Grid = struct {
-    n: u32,
-    nums: []u4,
-    allocator: std.mem.Allocator,
+fn Grid(comptime T: type) type {
+    return struct {
+        n: u32,
+        nums: []T,
+        allocator: std.mem.Allocator,
 
-    fn init(allocator: std.mem.Allocator, n: u32, input: []const u8) !Grid {
-        var nums = try allocator.alloc(u4, n * n);
-        var i: u32 = 0;
-        var j: u32 = 0;
-        for (input) |c| {
-            if (c == '\n') {
-                i += 1;
-                j = 0;
-                continue;
+        fn init(allocator: std.mem.Allocator, n: u32, input: []const u8) !Grid(T) {
+            var nums = try allocator.alloc(T, n * n);
+            var i: u32 = 0;
+            var j: u32 = 0;
+            for (input) |c| {
+                if (c == '\n') {
+                    i += 1;
+                    j = 0;
+                    continue;
+                }
+                nums[i * n + j] = @intCast(T, c - '0');
+                j += 1;
             }
-            nums[i * n + j] = @intCast(u4, c - '0');
-            j += 1;
+            return Grid(T){
+                .n = n,
+                .nums = nums,
+                .allocator = allocator,
+            };
         }
-        return Grid{
-            .n = n,
-            .nums = nums,
-            .allocator = allocator,
-        };
-    }
-    fn initSingle(allocator: std.mem.Allocator, n: u32, val: u4) !Grid {
-        var nums = try allocator.alloc(u4, n * n);
-        std.mem.set(u4, nums, val);
-        return Grid{
-            .n = n,
-            .nums = nums,
-            .allocator = allocator,
-        };
-    }
+        fn initSingle(allocator: std.mem.Allocator, n: u32, val: T) !Grid(T) {
+            var nums = try allocator.alloc(T, n * n);
+            std.mem.set(T, nums, val);
+            return Grid(T){
+                .n = n,
+                .nums = nums,
+                .allocator = allocator,
+            };
+        }
 
-    fn get(self: *Grid, i: u32, j: u32) *u4 {
-        return &self.nums[(i * self.n) + j];
-    }
+        fn get(self: *Grid(T), i: u32, j: u32) *T {
+            return &self.nums[(i * self.n) + j];
+        }
+        fn getval(self: *const Grid(T), i: u32, j: u32) T {
+            return self.nums[(i * self.n) + j];
+        }
 
-    pub fn format(
-        self: Grid,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-        const n = self.n;
-        var line = self.allocator.alloc(u8, n) catch unreachable;
-        var i: u32 = 0;
-        while (i < n) : (i += 1) {
-            for (self.nums[i * n .. (i + 1) * n]) |c, x| {
-                line[x] = '0' + @intCast(u8, c);
+        pub fn format(
+            self: Grid(T),
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = fmt;
+            _ = options;
+            const n = self.n;
+            var i: u32 = 0;
+            while (i < n) : (i += 1) {
+                var j: u32 = 0;
+                while (j < n) : (j += 1) {
+                    switch (@typeInfo(T)) {
+                        .Int => |info| if (info.bits > 4) {
+                            try writer.print("{d: >2}", .{self.getval(i, j)});
+                        } else {
+                            try writer.print("{d}", .{self.getval(i, j)});
+                        },
+                        else => unreachable,
+                    }
+                    if (j < n - 1) {
+                        switch (@typeInfo(T)) {
+                            .Int => |info| if (info.bits > 4) {
+                                try writer.writeAll(" ");
+                            },
+                            else => unreachable,
+                        }
+                    } else {
+                        try writer.writeAll("\n");
+                    }
+                }
             }
-            try writer.print("{s}\n", .{line});
         }
-    }
-};
+    };
+}
 
 pub fn part1(dataDir: std.fs.Dir) !void {
     var buffer: [240000]u8 = undefined;
@@ -67,11 +88,11 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     const n = @intCast(u32, std.mem.indexOf(u8, input, "\n").?);
     std.debug.print("n: {}\n", .{n});
 
-    var inputGrid = try Grid.init(allocator, n, input);
-    var upGrid = try Grid.initSingle(allocator, n, 0);
-    var downGrid = try Grid.initSingle(allocator, n, 0);
-    var leftGrid = try Grid.initSingle(allocator, n, 0);
-    var rightGrid = try Grid.initSingle(allocator, n, 0);
+    var inputGrid = try Grid(u4).init(allocator, n, input);
+    var upGrid = try Grid(u4).initSingle(allocator, n, 0);
+    var downGrid = try Grid(u4).initSingle(allocator, n, 0);
+    var leftGrid = try Grid(u4).initSingle(allocator, n, 0);
+    var rightGrid = try Grid(u4).initSingle(allocator, n, 0);
 
     // std.debug.print("inputGrid:\n{}\n", .{ inputGrid });
 
@@ -131,9 +152,69 @@ pub fn part1(dataDir: std.fs.Dir) !void {
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
+    var buffer: [40000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day8_dummy.txt");
-    _ = input;
+    const input = try read_input(dataDir, allocator, "day8.txt");
+    const n = @intCast(u32, std.mem.indexOf(u8, input, "\n").?);
+    std.debug.print("n: {}\n", .{n});
+
+    var inputGrid = try Grid(u4).init(allocator, n, input);
+    var i: u32 = 1;
+    var maxScore: u32 = 0;
+    while (i < n - 1) : (i += 1) {
+        var j: u32 = 1;
+        while (j < n - 1) : (j += 1) {
+            const val = inputGrid.getval(i, j);
+            var sceneScore: u32 = 1;
+            {
+                var a = i + 1;
+                var treeCount: u32 = 0;
+                while (a < n) : (a += 1) {
+                    treeCount += 1;
+                    if (inputGrid.getval(a, j) >= val) {
+                        break;
+                    }
+                }
+                sceneScore *= treeCount;
+            }
+            {
+                var a = j + 1;
+                var treeCount: u32 = 0;
+                while (a < n) : (a += 1) {
+                    treeCount += 1;
+                    if (inputGrid.getval(i, a) >= val) {
+                        break;
+                    }
+                }
+                sceneScore *= treeCount;
+            }
+            {
+                var a: i32 = @intCast(i32, i - 1);
+                var treeCount: u32 = 0;
+                while (a >= 0) : (a -= 1) {
+                    treeCount += 1;
+                    if (inputGrid.getval(@intCast(u32, a), j) >= val) {
+                        break;
+                    }
+                }
+                sceneScore *= treeCount;
+            }
+            {
+                var a: i32 = @intCast(i32, j - 1);
+                var treeCount: u32 = 0;
+                while (a >= 0) : (a -= 1) {
+                    treeCount += 1;
+                    if (inputGrid.getval(i, @intCast(u32, a)) >= val) {
+                        break;
+                    }
+                }
+                sceneScore *= treeCount;
+            }
+            if (sceneScore > maxScore) {
+                maxScore = sceneScore;
+            }
+        }
+    }
+    std.debug.print("maxScore: {}\n", .{maxScore});
 }
