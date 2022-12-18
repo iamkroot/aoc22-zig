@@ -39,10 +39,45 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     std.debug.print("strength: {}\n", .{strength});
 }
 
+fn printGrid(grid: []const u8) void {
+    for (grid) |c, i| {
+        std.debug.print("{c}", .{c});
+        if (i % 40 == 39) {
+            std.debug.print("\n", .{});
+        }
+    }
+}
+
 pub fn part2(dataDir: std.fs.Dir) !void {
     var buffer: [14000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day10_dummy.txt");
-    _ = input;
+    const input = try read_input(dataDir, allocator, "day10.txt");
+    var grid = [_]u8{'.'} ** 240;
+    var lines = std.mem.split(u8, std.mem.trim(u8, input, "\n"), "\n");
+    var cycle: u32 = 1;
+    var val: i64 = 1;
+    const NUM_CYCLES: u32 = 241;
+    var nextInstrCycle: u32 = 1;
+    var line: []const u8 = undefined;
+    var nextValAdd: i64 = 0;
+    while (cycle < NUM_CYCLES) : (cycle += 1) {
+        if (cycle == nextInstrCycle) {
+            val += nextValAdd;
+            line = lines.next().?;
+            if (line[0] == 'n') {
+                nextInstrCycle = cycle + 1;
+                nextValAdd = 0;
+            } else {
+                nextInstrCycle = cycle + 2;
+                nextValAdd = try std.fmt.parseInt(i64, line[5..], 10);
+            }
+        }
+        // std.debug.print("cycle: {} {s}\t{}\n", .{ cycle, line, val });
+        const cursor = (cycle - 1) % 40;
+        if (val - 1 <= cursor and cursor <= val + 1) {
+            grid[cycle - 1] = '#';
+        }
+    }
+    printGrid(&grid);
 }
