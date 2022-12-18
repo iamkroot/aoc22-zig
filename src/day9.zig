@@ -34,10 +34,10 @@ const Pos = struct {
             .s => Pos{ .x = self.x, .y = self.y - steps },
             .e => Pos{ .x = self.x + steps, .y = self.y },
             .w => Pos{ .x = self.x - steps, .y = self.y },
-            .ne => Pos{.x = self.x + steps, .y = self.y + steps},
-            .se => Pos{.x = self.x + steps, .y = self.y - steps},
-            .nw => Pos{.x = self.x - steps, .y = self.y + steps},
-            .sw => Pos{.x = self.x - steps, .y = self.y - steps},
+            .ne => Pos{ .x = self.x + steps, .y = self.y + steps },
+            .se => Pos{ .x = self.x + steps, .y = self.y - steps },
+            .nw => Pos{ .x = self.x - steps, .y = self.y + steps },
+            .sw => Pos{ .x = self.x - steps, .y = self.y - steps },
             .none => self,
         };
     }
@@ -114,9 +114,42 @@ pub fn part1(dataDir: std.fs.Dir) !void {
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day9_dummy.txt");
-    _ = input;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    const input = try read_input(dataDir, allocator, "day9.txt");
+    var iter = std.mem.split(u8, std.mem.trim(u8, input, "\n"), "\n");
+    var curHeadPos = Pos{ .x = 0, .y = 0 };
+    var knots = [_]Pos{.{ .x = 0, .y = 0 }} ** 9;
+
+    var hist = std.AutoHashMap(Pos, void).init(allocator);
+    try hist.put(.{ .x = 0, .y = 0 }, {});
+    while (iter.next()) |line| {
+        const headDir = Dir.from_str(line[0]);
+        const numSteps = try std.fmt.parseInt(u32, line[2..], 10);
+        var step: u32 = 1;
+        while (step <= numSteps) : (step += 1) {
+            const newHeadPos = curHeadPos.move(headDir);
+            curHeadPos = newHeadPos;
+            for (knots) |*knot, i| {
+                const target = blk: {
+                    if (i == 0) {
+                        break :blk newHeadPos;
+                    } else {
+                        break :blk knots[i - 1];
+                    }
+                };
+                if (knot.adjacent(target)) {
+                    break;
+                } else {
+                    const dir = knot.getDir(target);
+                    const newPos = knot.move(dir);
+                    knot.* = newPos;
+                    if (i == 8) {
+                        try hist.put(newPos, {});
+                    }
+                }
+            }
+        }
+    }
+    std.debug.print("uniqPositions {}\n", .{hist.count()});
 }
