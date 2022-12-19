@@ -5,7 +5,7 @@ fn splitLine(line: []const u8, chars: []const u8) std.mem.SplitIterator(u8) {
     return std.mem.split(u8, std.mem.trim(u8, line, "\n"), chars);
 }
 
-const Op = union(enum) { add: i32, mul: i32, sq };
+const Op = union(enum) { add: u32, mul: u32, sq };
 
 const Monke = struct {
     items: Queue(u64),
@@ -110,9 +110,9 @@ fn parse(allocator: std.mem.Allocator, input: []const u8) ![]Monke {
             if (std.mem.eql(u8, opS, "new = old * old")) {
                 op = .sq;
             } else if (std.mem.eql(u8, opS[0..12], "new = old * ")) {
-                op = Op{ .mul = try std.fmt.parseInt(i32, opS[12..], 10) };
+                op = Op{ .mul = try std.fmt.parseInt(u32, opS[12..], 10) };
             } else if (std.mem.eql(u8, opS[0..12], "new = old + ")) {
-                op = Op{ .add = try std.fmt.parseInt(i32, opS[12..], 10) };
+                op = Op{ .add = try std.fmt.parseInt(u32, opS[12..], 10) };
             }
         }
         const divBy = try std.fmt.parseInt(u32, lines.next().?[21..], 10);
@@ -129,21 +129,49 @@ fn parse(allocator: std.mem.Allocator, input: []const u8) ![]Monke {
     return monkeys;
 }
 
+fn interpOp(op: Op, val: u64) u64 {
+    return switch (op) {
+        .add => |v| val + v,
+        .mul => |v| val * v,
+        .sq => |_| val * val,
+    };
+}
+
 pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
+    var buffer: [22000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day11_dummy.txt");
+    const input = try read_input(dataDir, allocator, "day11.txt");
     var monkeys = try parse(allocator, input);
+    defer allocator.free(monkeys);
     std.debug.print("monkeys: {any}\n", .{monkeys});
     const ROUNDS: u32 = 20;
     var i: u32 = 0;
+    var inspectCount = try allocator.alloc(u32, monkeys.len);
+    defer allocator.free(inspectCount);
+    std.mem.set(u32, inspectCount, 0);
     while (i < ROUNDS) : (i += 1) {
         for (monkeys) |*monke, n| {
-            _ = monke;
-            _ = n;
+            while (monke.items.dequeue()) |origWorry| {
+                inspectCount[n] += 1;
+                var worry = interpOp(monke.op, origWorry);
+                worry /= 3;
+                var nextMonke = if (worry % monke.divBy == 0) monke.trueMonke else monke.falseMonke;
+                // std.debug.print("{}: worry {} sent to {}\n", .{ n, worry, nextMonke });
+                try monkeys[nextMonke].items.enqueue(worry);
+            }
+        }
+        for (monkeys) |monke, n| {
+            var itemIter = monke.items.start;
+            std.debug.print("{}:", .{n});
+            while (itemIter) |item| {
+                std.debug.print(" {}", .{item.data});
+                itemIter = item.next;
+            }
+            std.debug.print("\n", .{});
         }
     }
+    std.debug.print("inspectCount: {any}\n", .{inspectCount});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
