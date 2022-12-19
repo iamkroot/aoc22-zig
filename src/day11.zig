@@ -175,9 +175,43 @@ pub fn part1(dataDir: std.fs.Dir) !void {
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day11_dummy.txt");
-    _ = input;
+    var allocator = std.heap.page_allocator;
+    const input = try read_input(dataDir, allocator, "day11.txt");
+    var monkeys = try parse(allocator, input);
+    var mult: u64 = 1;
+    for (monkeys) |monke| {
+        mult *= monke.divBy;
+    }
+    defer allocator.free(monkeys);
+    std.debug.print("monkeys: {any}\n", .{monkeys});
+    const ROUNDS: u32 = 10000;
+    var i: u32 = 0;
+    var inspectCount = try allocator.alloc(u32, monkeys.len);
+    defer allocator.free(inspectCount);
+    std.mem.set(u32, inspectCount, 0);
+    while (i < ROUNDS) : (i += 1) {
+        for (monkeys) |*monke, n| {
+            while (monke.items.dequeue()) |origWorry| {
+                inspectCount[n] += 1;
+                var worry = interpOp(monke.op, origWorry);
+                worry %= mult;
+                var nextMonke = if (worry % monke.divBy == 0) monke.trueMonke else monke.falseMonke;
+                // std.debug.print("{}: worry {} sent to {}\n", .{ n, worry, nextMonke });
+                try monkeys[nextMonke].items.enqueue(worry);
+            }
+        }
+    }
+    std.debug.print("inspectCount: {any}\n", .{inspectCount});
+    var max1: u64 = 0;
+    var max2: u64 = 0;
+    for (inspectCount) |ic| {
+        if (ic > max1) {
+            max2 = max1;
+            max1 = ic;
+        } else if (ic > max2) {
+            max2 = ic;
+        }
+    }
+    std.debug.print("max1, max2: {} {}\n", .{ max1, max2 });
+    std.debug.print("max1 * max2: {}\n", .{max1 * max2});
 }
