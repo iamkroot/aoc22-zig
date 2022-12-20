@@ -113,6 +113,7 @@ pub fn Grid(comptime T: type, comptime fmtEl: []const u8) type {
 const Delta = struct { i: i32, j: i32 };
 
 const InputGrid = Grid(u8, "{c}");
+const VisitedGrid = Grid(bool, "{} ");
 
 fn parseGrid(allocator: std.mem.Allocator, input: []const u8) !InputGrid {
     const numCols = @intCast(u32, std.mem.indexOf(u8, input, "\n").?);
@@ -177,13 +178,7 @@ pub fn Queue(comptime Child: type) type {
     };
 }
 
-pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [1444000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day12.txt");
-    const inputGrid = try parseGrid(allocator, input);
-    // std.debug.print("inputGrid: start: {}, end: {}\n{}\n", .{ inputGrid.start, inputGrid.end, inputGrid });
+fn minPath(allocator: std.mem.Allocator, inputGrid: InputGrid) !u32 {
     var visited = try Grid(bool, "{} ").initSingle(allocator, inputGrid, false);
     // std.debug.print("visited: start: {}, end: {}\n{}\n", .{ visited.start, visited.end, visited });
 
@@ -196,9 +191,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     try queue.enqueue(.{ .idx = inputGrid.start, .pathLen = 0 });
     while (queue.dequeue()) |node| {
         if (node.idx.i == inputGrid.end.i and node.idx.j == inputGrid.end.j) {
-            std.debug.print("END!{any}\n", .{node.idx});
-            std.debug.print("END!{}\n", .{node.pathLen});
-            return;
+            return node.pathLen;
         }
         var dirs = [_]Delta{ .{ .i = 0, .j = -1 }, .{ .i = 0, .j = 1 }, .{ .i = -1, .j = 0 }, .{ .i = 1, .j = 0 } };
         const elevation = inputGrid.getvalIdx(node.idx);
@@ -219,12 +212,41 @@ pub fn part1(dataDir: std.fs.Dir) !void {
             try queue.enqueue(.{ .idx = nextIdx, .pathLen = node.pathLen + 1 });
         }
     }
+    return 1e9;
+}
+
+pub fn part1(dataDir: std.fs.Dir) !void {
+    var buffer: [1444000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+    const input = try read_input(dataDir, allocator, "day12.txt");
+    const inputGrid = try parseGrid(allocator, input);
+    // std.debug.print("inputGrid: start: {}, end: {}\n{}\n", .{ inputGrid.start, inputGrid.end, inputGrid });
+    const minLen = try minPath(allocator, inputGrid);
+    std.debug.print("minLen: {}\n", .{minLen});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day12_dummy.txt");
-    _ = input;
+    const allocator = std.heap.page_allocator;
+    const input = try read_input(dataDir, allocator, "day12.txt");
+    var inputGrid = try parseGrid(allocator, input);
+
+    var i: u32 = 0;
+    var j: u32 = 0;
+    var minLen: u32 = 1e9;
+    for (inputGrid.nums) |c| {
+        if (c == 'a') {
+            inputGrid.start = .{ .i = i, .j = j };
+            const pathLen = try minPath(allocator, inputGrid);
+            if (minLen > pathLen) {
+                minLen = pathLen;
+            }
+        }
+        j += 1;
+        if (j == inputGrid.numCols) {
+            j = 0;
+            i += 1;
+        }
+    }
+    std.debug.print("minLen: {}\n", .{minLen});
 }
