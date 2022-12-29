@@ -56,17 +56,18 @@ const el = union(enum) {
                 .val => |r| if (l == r) null else l < r,
                 .list => |r| {
                     _ = r;
-                    var a = try std.ArrayList(el).initCapacity(allocator, 1);
-                    try a.append(el{ .val = l });
-                    return try cmp(allocator, el{ .list = a.items }, right);
+                    var a = try allocator.alloc(el, 1);
+                    defer allocator.free(a);
+                    a[0] = el{ .val = l };
+                    return try cmp(allocator, el{ .list = a }, right);
                 },
             },
             .list => |l| switch (right) {
                 .val => |r| {
-                    var a = try std.ArrayList(el).initCapacity(allocator, 1);
-                    defer a.deinit();
-                    try a.append(el{ .val = r });
-                    return try cmp(allocator, left, el{ .list = a.items });
+                    var a = try allocator.alloc(el, 1);
+                    defer allocator.free(a);
+                    a[0] = el{ .val = r };
+                    return try cmp(allocator, left, el{ .list = a });
                 },
                 .list => |r| {
                     var i: u32 = 0;
@@ -79,6 +80,18 @@ const el = union(enum) {
                     return if (l.len < r.len) true else if (l.len > r.len) false else null;
                 },
             },
+        };
+    }
+    fn isDivider(self: Self, val: u32) bool {
+        return switch (self) {
+            .list => |l| if (l.len != 1) false else switch (l[0]) {
+                .list => |v| if (v.len != 1) false else switch (v[0]) {
+                    .val => |x| x == val,
+                    else => false,
+                },
+                else => false,
+            },
+            else => false,
         };
     }
 };
@@ -114,10 +127,36 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     std.debug.print("idxCount: {}\n", .{idxCount});
 }
 
+fn lessThan(allocator: std.mem.Allocator, lhs: el, rhs: el) bool {
+    return (el.cmp(allocator, lhs, rhs) catch unreachable).?;
+}
+
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
+    var buffer: [1400000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day13_dummy.txt");
-    _ = input;
+    const input = try read_input(dataDir, allocator, "day13.txt");
+    var lines = std.mem.split(u8, std.mem.trim(u8, input, "\n"), "\n");
+    var packets = try std.ArrayList(el).initCapacity(allocator, 8);
+    var a: usize = 0;
+    try packets.append(try el.parse(allocator, "[[2]]", &a));
+    a = 0;
+    try packets.append(try el.parse(allocator, "[[6]]", &a));
+    while (lines.next()) |line| {
+        if (line.len == 0) {
+            continue;
+        }
+        var i: usize = 0;
+        var packet = try el.parse(allocator, line, &i);
+        try packets.append(packet);
+    }
+    std.sort.sort(el, packets.items, allocator, lessThan);
+    var divIdxs: usize = 1;
+    for (packets.items) |p, i| {
+        if (p.isDivider(2) or p.isDivider(6)) {
+            divIdxs *= i + 1;
+        }
+    }
+    std.debug.print("packets: {any}\n", .{packets.items});
+    std.debug.print("divIdxs: {}\n", .{divIdxs});
 }
