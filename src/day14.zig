@@ -80,6 +80,7 @@ fn Grid(comptime T: type) type {
             const n = self.numCols;
             var y: u32 = self.minY;
             while (y < m + self.minY) : (y += 1) {
+                try writer.print("{:2}: ", .{y});
                 var x: u32 = self.minX;
                 while (x < n + self.minX) : (x += 1) {
                     switch (@typeInfo(T)) {
@@ -95,11 +96,7 @@ fn Grid(comptime T: type) type {
     };
 }
 
-pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day14_dummy.txt");
+fn parseInput(allocator: std.mem.Allocator, input: []const u8) !Grid(CellState) {
     var lines = std.mem.split(u8, std.mem.trim(u8, input, "\n"), "\n");
     // we _know_ that sand drips from 500,0
     var minX: u32 = 500;
@@ -129,6 +126,11 @@ pub fn part1(dataDir: std.fs.Dir) !void {
         try rockLines.append(points);
     }
     std.debug.print("mixX, minY, maxX, maxY: {} {} {} {}\n", .{ minX, minY, maxX, maxY });
+    // add border
+    minX -= 1;
+    // minY -= 1; // already 0
+    maxX += 1;
+    maxY += 1;
     const numRows = maxY - minY + 1;
     const numCols = maxX - minX + 1;
     std.debug.print("numRows, numCols: {} {}\n", .{ numRows, numCols });
@@ -150,7 +152,81 @@ pub fn part1(dataDir: std.fs.Dir) !void {
             start = end;
         }
     }
-    std.debug.print("rockGrid:\n{any}\n", .{rockGrid});
+    // std.debug.print("rockGrid:\n{any}\n", .{rockGrid});
+    return rockGrid;
+}
+
+fn addSand(downGrid: *Grid(u32), finalX: u32, finalY: u32) void {
+    var y = finalY;
+    var rockVal = downGrid.getval(finalX, y);
+
+    while (rockVal == downGrid.getval(finalX, y) and y > 0) : (y -= 1) {
+        downGrid.get(finalX, y).* = finalY;
+    }
+    if (y == 0 and rockVal == downGrid.getval(finalX, y)) {
+        downGrid.get(finalX, y).* = finalY;
+    }
+}
+
+pub fn part1(dataDir: std.fs.Dir) !void {
+    var buffer: [140000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+    const input = try read_input(dataDir, allocator, "day14.txt");
+    var rockGrid = try parseInput(allocator, input);
+    const minX = rockGrid.minX;
+    const minY = rockGrid.minY;
+    const maxX = minX + rockGrid.numCols - 1;
+    const maxY = minY + rockGrid.numRows - 1;
+
+    // store the position of the next rock/sand below every cell
+    var downGrid = try Grid(u32).init(allocator, rockGrid.numCols, rockGrid.numRows, minX, minY, maxY);
+    var x = minX;
+    while (x <= maxX) : (x += 1) {
+        var y = maxY;
+        var prevRock = y;
+        while (y != minY) : (y -= 1) {
+            if (rockGrid.getval(x, y) == CellState.rock) {
+                prevRock = y;
+            }
+            downGrid.get(x, y).* = prevRock;
+        }
+        if (rockGrid.getval(x, y) == CellState.rock) {
+            prevRock = y;
+        }
+        downGrid.get(x, y).* = prevRock;
+    }
+
+    var numSands: u32 = 0;
+    var prevY: u32 = 0;
+    outer: while (true) {
+        var hitY = downGrid.getval(500, 0);
+        if (hitY == maxY or hitY == 0) {
+            break;
+        }
+        var hitX: u32 = 500;
+        prevY = hitY - 1;
+        while (true) {
+            if (rockGrid.getval(hitX - 1, hitY) != CellState.empty and rockGrid.getval(hitX + 1, hitY) != CellState.empty) {
+                // can't move down, stop
+                rockGrid.get(hitX, hitY - 1).* = CellState.sand;
+                addSand(&downGrid, hitX, hitY - 1);
+                numSands += 1;
+                break;
+            } else if (rockGrid.getval(hitX - 1, hitY) == CellState.empty) {
+                hitX -= 1;
+            } else {
+                hitX += 1;
+            }
+            hitY = downGrid.getval(hitX, hitY);
+            if (hitY == maxY) {
+                break :outer;
+            }
+        }
+        // std.debug.print("rockGrid:\n{any}\n", .{rockGrid});
+        // std.debug.print("downGrid:\n{any}\n", .{downGrid});
+    }
+    std.debug.print("numSands: {}\n", .{numSands});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
