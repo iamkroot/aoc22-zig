@@ -83,18 +83,33 @@ pub fn part1(dataDir: std.fs.Dir) !void {
 
     std.sort.sort(Pair, segments.items, {}, cmpPair);
     std.debug.print("segments: {any} {} {}\n", .{ segments.items, minX, maxX });
-    var x = minX;
-    var count: u32 = 0;
-    while (x <= maxX) : (x += 1) {
-        for (segments.items) |segment| {
-            const start = segment[0];
-            const end = segment[1];
-            if (x >= start and x <= end) {
-                count += 1;
-                break;
-            }
+
+    // coalesce all the segments
+    var finalSegments = try allocator.alloc(Pair, segments.items.len);
+    var numFS: usize = 1;
+    finalSegments[0] = segments.items[0];
+
+    var prevEnd = segments.items[0][1];
+    for (segments.items[1..]) |segment| {
+        const start = segment[0];
+        const end = segment[1];
+        if (start <= prevEnd) {
+            finalSegments[numFS - 1][1] = std.math.max(prevEnd, end);
+        } else {
+            finalSegments[numFS] = segment;
+            numFS += 1;
         }
+        prevEnd = finalSegments[numFS - 1][1];
     }
+    std.debug.print("finalSegments: {any}\n", .{finalSegments[0..numFS]});
+
+    var count: u32 = 0;
+    for (finalSegments[0..numFS]) |segment| {
+        const start = segment[0];
+        const end = segment[1];
+        count += @intCast(u32, end - start + 1);
+    }
+
     std.debug.print("count, beaconsOnTarget: {} {any}\n", .{ count, beaconsOnTarget.items });
     std.debug.print("val: {}\n", .{count - beaconsOnTarget.items.len});
 }
