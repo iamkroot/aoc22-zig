@@ -40,18 +40,28 @@ const Pos = struct {
 };
 const Pair = [2]i32;
 
-pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day15.txt");
+fn addUniq(arr: *std.ArrayList(Pos), val: Pos) !void {
+    for (arr.items) |b| {
+        if (b.x == val.x and b.y == val.y) {
+            break;
+        }
+    } else {
+        try arr.append(val);
+    }
+}
+
+var sensors: []Pos = undefined;
+var beacons: []Pos = undefined;
+var manhattans: []u32 = undefined;
+
+fn parseInput(allocator: std.mem.Allocator, input: []const u8) !void {
     var lines = std.mem.split(u8, std.mem.trim(u8, input, "\n"), "\n");
-    // const TARGET_Y: i32 = 10;
-    const TARGET_Y: i32 = 2000000;
-    var beaconsOnTarget = std.ArrayList(Pos).init(allocator);
-    var segments = std.ArrayList(Pair).init(allocator);
-    var minX: i32 = std.math.maxInt(i32);
-    var maxX: i32 = std.math.minInt(i32);
+    const n = std.mem.count(u8, input, "\n");
+    sensors = try allocator.alloc(Pos, n);
+    beacons = try allocator.alloc(Pos, n);
+    manhattans = try allocator.alloc(u32, n);
+    var idx: u32 = 0;
+
     while (lines.next()) |line| {
         var i: usize = 12;
         const sensorPos = Pos.fromComma(line, &i);
@@ -59,58 +69,93 @@ pub fn part1(dataDir: std.fs.Dir) !void {
         const beaconPos = Pos.fromComma(line, &i);
 
         const manh = sensorPos.manhattan(beaconPos);
-        if (std.math.absCast(sensorPos.y - TARGET_Y) >= manh) {
+        sensors[idx] = sensorPos;
+        beacons[idx] = beaconPos;
+        manhattans[idx] = manh;
+        idx += 1;
+    }
+}
+
+var beaconsOnTarget: std.ArrayList(Pos) = undefined;
+var segments: std.ArrayList(Pair) = undefined;
+
+const MINPOS: i32 = 0;
+// const MAXPOS: i32 = 20;
+const MAXPOS: i32 = 4000000;
+
+fn getSegments(allocator: std.mem.Allocator, targetY: i32, comptime ispart2: bool) !std.ArrayList(Pair) {
+    beaconsOnTarget.shrinkRetainingCapacity(0);
+    segments.shrinkRetainingCapacity(0);
+
+    var idx: u32 = 0;
+    var minX: i32 = MAXPOS;
+    var maxX: i32 = MINPOS;
+    while (idx < sensors.len) : (idx += 1) {
+        const sensorPos = sensors[idx];
+        const beaconPos = beacons[idx];
+        const manh = manhattans[idx];
+        if (std.math.absCast(sensorPos.y - targetY) >= manh) {
             continue;
         }
-        const widthX = @intCast(i32, (manh - std.math.absCast(sensorPos.y - TARGET_Y)));
-        const start = sensorPos.x - widthX;
-        const end = sensorPos.x + widthX;
-        std.debug.print("sensor: {} beacon: {} manh {} {} {}\n", .{ sensorPos, beaconPos, manh, start, end });
+        const widthX = @intCast(i32, (manh - std.math.absCast(sensorPos.y - targetY)));
+        var start = sensorPos.x - widthX;
+        var end = sensorPos.x + widthX;
+        if (ispart2) {
+            start = std.math.clamp(start, MINPOS, MAXPOS);
+            end = std.math.clamp(end, MINPOS, MAXPOS);
+        }
+        // std.debug.print("sensor: {} beacon: {} manh {} {} {}\n", .{ sensorPos, beaconPos, manh, start, end });
         minX = std.math.min(minX, start);
         maxX = std.math.max(maxX, end);
-        if (beaconPos.y == TARGET_Y and beaconPos.x >= start and beaconPos.x <= end) {
-            std.debug.print("beaconPos: {}\n", .{beaconPos});
-            for (beaconsOnTarget.items) |b| {
-                if (b.x == beaconPos.x and b.y == beaconPos.y) {
-                    break;
-                }
-            } else {
-                try beaconsOnTarget.append(beaconPos);
-            }
+        if (beaconPos.y == targetY and beaconPos.x >= start and beaconPos.x <= end) {
+            try addUniq(&beaconsOnTarget, beaconPos);
         }
         try segments.append(Pair{ start, end });
     }
-
     std.sort.sort(Pair, segments.items, {}, cmpPair);
-    std.debug.print("segments: {any} {} {}\n", .{ segments.items, minX, maxX });
+    // std.debug.print("segments: {any} {} {}\n", .{ segments.items, minX, maxX });
 
     // coalesce all the segments
-    var finalSegments = try allocator.alloc(Pair, segments.items.len);
-    var numFS: usize = 1;
-    finalSegments[0] = segments.items[0];
+    var finalSegments = std.ArrayList(Pair).init(allocator);
+    try finalSegments.append(segments.items[0]);
 
     var prevEnd = segments.items[0][1];
     for (segments.items[1..]) |segment| {
         const start = segment[0];
         const end = segment[1];
-        if (start <= prevEnd) {
-            finalSegments[numFS - 1][1] = std.math.max(prevEnd, end);
+        if (start <= prevEnd + 1) {
+            finalSegments.items[finalSegments.items.len - 1][1] = std.math.max(prevEnd, end);
         } else {
-            finalSegments[numFS] = segment;
-            numFS += 1;
+            try finalSegments.append(segment);
         }
-        prevEnd = finalSegments[numFS - 1][1];
+        prevEnd = finalSegments.items[finalSegments.items.len - 1][1];
     }
-    std.debug.print("finalSegments: {any}\n", .{finalSegments[0..numFS]});
+    return finalSegments;
+}
+
+pub fn part1(dataDir: std.fs.Dir) !void {
+    var buffer: [14000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+    const input = try read_input(dataDir, allocator, "day15.txt");
+    try parseInput(allocator, input);
+    beaconsOnTarget = std.ArrayList(Pos).init(allocator);
+    defer beaconsOnTarget.deinit();
+    segments = std.ArrayList(Pair).init(allocator);
+    defer segments.deinit();
+
+    const finalSegments = try getSegments(allocator, 2000000, false);
+    defer finalSegments.deinit();
+    // std.debug.print("finalSegments: {any}\n", .{finalSegments});
 
     var count: u32 = 0;
-    for (finalSegments[0..numFS]) |segment| {
+    for (finalSegments.items) |segment| {
         const start = segment[0];
         const end = segment[1];
         count += @intCast(u32, end - start + 1);
     }
 
-    std.debug.print("count, beaconsOnTarget: {} {any}\n", .{ count, beaconsOnTarget.items });
+    // std.debug.print("count, beaconsOnTarget: {} {any}\n", .{ count, beaconsOnTarget.items });
     std.debug.print("val: {}\n", .{count - beaconsOnTarget.items.len});
 }
 
@@ -119,9 +164,23 @@ fn cmpPair(_: void, l: Pair, r: Pair) bool {
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
+    var buffer: [140000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day15_dummy.txt");
-    _ = input;
+    const input = try read_input(dataDir, allocator, "day15.txt");
+    try parseInput(allocator, input);
+    beaconsOnTarget = std.ArrayList(Pos).init(allocator);
+    segments = std.ArrayList(Pair).init(allocator);
+    var targetY: i32 = MINPOS;
+    while (targetY <= MAXPOS) : (targetY += 1) {
+        const finalSegments = try getSegments(allocator, targetY, true);
+        // std.debug.print("finalSegments: {any}\n", .{finalSegments});
+        if (finalSegments.items.len > 1) {
+            const targetX = finalSegments.items[0][1] + 1;
+            const freq = @intCast(u64, targetX) * 4000000 + @intCast(u64, targetY);
+            std.debug.print("freq: {} {} {}\n", .{ targetX, targetY, freq });
+            break;
+        }
+        finalSegments.deinit();
+    }
 }
