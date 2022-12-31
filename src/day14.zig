@@ -96,12 +96,12 @@ fn Grid(comptime T: type) type {
     };
 }
 
-fn parseInput(allocator: std.mem.Allocator, input: []const u8) !Grid(CellState) {
+fn parseInput(allocator: std.mem.Allocator, input: []const u8, ispart2: bool) !Grid(CellState) {
     var lines = std.mem.split(u8, std.mem.trim(u8, input, "\n"), "\n");
     // we _know_ that sand drips from 500,0
-    var minX: u32 = 500;
+    var minX: u32 = if (ispart2) 1 else 500;
     var minY: u32 = 0;
-    var maxX: u32 = 500;
+    var maxX: u32 = if (ispart2) 999 else 500;
     var maxY: u32 = 0;
     var rockLines = std.ArrayList([]Idx).init(allocator);
     while (lines.next()) |line| {
@@ -124,6 +124,11 @@ fn parseInput(allocator: std.mem.Allocator, input: []const u8) !Grid(CellState) 
             i += 1;
         }
         try rockLines.append(points);
+    }
+    if (ispart2) {
+        maxY += 2;
+        var floor: [2]Idx = .{ Idx{ .x = 0, .y = maxY }, Idx{ .x = 1000, .y = maxY } };
+        try rockLines.append(&floor);
     }
     std.debug.print("mixX, minY, maxX, maxY: {} {} {} {}\n", .{ minX, minY, maxX, maxY });
     // add border
@@ -168,12 +173,7 @@ fn addSand(downGrid: *Grid(u32), finalX: u32, finalY: u32) void {
     }
 }
 
-pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [140000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day14.txt");
-    var rockGrid = try parseInput(allocator, input);
+fn countSands(allocator: std.mem.Allocator, rockGrid: *Grid(CellState)) !u32 {
     const minX = rockGrid.minX;
     const minY = rockGrid.minY;
     const maxX = minX + rockGrid.numCols - 1;
@@ -226,13 +226,25 @@ pub fn part1(dataDir: std.fs.Dir) !void {
         // std.debug.print("rockGrid:\n{any}\n", .{rockGrid});
         // std.debug.print("downGrid:\n{any}\n", .{downGrid});
     }
+    return numSands;
+}
+
+pub fn part1(dataDir: std.fs.Dir) !void {
+    var buffer: [140000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+    const input = try read_input(dataDir, allocator, "day14.txt");
+    var rockGrid = try parseInput(allocator, input, false);
+    const numSands = try countSands(allocator, &rockGrid);
     std.debug.print("numSands: {}\n", .{numSands});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
+    var buffer: [1400000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day14_dummy.txt");
-    _ = input;
+    const input = try read_input(dataDir, allocator, "day14.txt");
+    var rockGrid = try parseInput(allocator, input, true);
+    const numSands = try countSands(allocator, &rockGrid);
+    std.debug.print("numSands: {}\n", .{numSands});
 }
