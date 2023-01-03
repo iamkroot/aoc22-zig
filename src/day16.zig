@@ -56,15 +56,93 @@ const Input = struct {
     }
 };
 
+var memo: [][][]u32 = undefined;
+const BS = std.bit_set.IntegerBitSet(64);
+
+fn getMax(inp: Input, open_valves: []bool, ovb: BS, cur_valve: u8, prev_valve: u8, remtime: u8) u32 {
+    if (remtime <= 1) {
+        return 0;
+    }
+    if (memo[remtime][cur_valve][ovb.mask] != std.math.maxInt(u32)) {
+        return memo[remtime][cur_valve][ovb.mask];
+    }
+    _ = prev_valve;
+    // std.debug.print("cur_valve, prev_valve, remtime, open_valves: {} {} {} {any}\n", .{ cur_valve, prev_valve, remtime, open_valves });
+    var newremtime = remtime;
+    var selfcontrib: u32 = 0;
+    var max: u32 = 0;
+
+    // first try opening self
+    if (!open_valves[cur_valve] and inp.flowrates[cur_valve] != 0) {
+        newremtime -= 1; // one minute to open it
+        // remaining contribution
+        selfcontrib = @intCast(u32, inp.flowrates[cur_valve]) * newremtime;
+        if (remtime == 2) {
+            return selfcontrib;
+        }
+    } else {
+        selfcontrib = 0;
+    }
+    if (!open_valves[cur_valve] and inp.flowrates[cur_valve] != 0) {
+        // once, try with selfcontrib
+        open_valves[cur_valve] = true;
+        var ovb2 = ovb;
+        ovb2.set(cur_valve);
+        for (inp.lst[cur_valve]) |neigh| {
+            const withself = getMax(inp, open_valves, ovb2, neigh, cur_valve, newremtime - 1);
+            max = std.math.max(max, withself + selfcontrib);
+        }
+        // ovb.unset(cur_valve);
+        open_valves[cur_valve] = false;
+    }
+    for (inp.lst[cur_valve]) |neigh| {
+        const withoutself = getMax(inp, open_valves, ovb, neigh, cur_valve, remtime - 1);
+        max = std.math.max(max, withoutself);
+    }
+    if (remtime == 29) {
+        std.debug.print("cur_valve, max: {} {}\n", .{ cur_valve, max });
+    }
+    memo[remtime][cur_valve][ovb.mask] = max;
+    return max;
+}
+
 pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
+    // var buffer: [16000000]u8 = undefined;
+    // var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    // const allocator = fba.allocator();
+    const allocator = std.heap.page_allocator;
     const input = try read_input(dataDir, allocator, "day16_dummy.txt");
     var inp = try Input.parse(allocator, input);
     std.debug.print("namegraph: {s}\n", .{inp.namegraph});
     std.debug.print("lst: {any}\n", .{inp.lst});
     std.debug.print("flowrates: {any}\n", .{inp.flowrates});
+
+    const TIME: u32 = 30;
+    var max: u32 = 0;
+    var open_valves = try allocator.alloc(bool, inp.lst.len);
+
+    memo = try allocator.alloc([][]u32, TIME + 1);
+    for (memo) |*x| {
+        x.* = try allocator.alloc([]u32, inp.lst.len);
+        for (x.*) |*y| {
+            y.* = try allocator.alloc(u32, std.math.pow(usize, 2, inp.lst.len));
+            std.mem.set(u32, y.*, std.math.maxInt(u32));
+        }
+    }
+    var nn = @intCast(u8, inp.lst.len);
+    const AApos = Input.insert_name(inp.namegraph, "AA", &nn);
+
+    std.mem.set(bool, open_valves, false);
+    for (memo) |*x| {
+        for (x.*) |*y| {
+            std.mem.set(u32, y.*, std.math.maxInt(u32));
+        }
+    }
+    var ovb = BS.initEmpty();
+    const v = getMax(inp, open_valves, ovb, AApos, 0, TIME);
+    max = std.math.max(max, v);
+
+    std.debug.print("max: {}\n", .{max});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
