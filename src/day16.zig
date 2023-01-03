@@ -8,6 +8,10 @@ const Input = struct {
     namegraph: []Name,
     flowrates: []u8,
     lst: AdjList,
+    /// Store index of tunnels with non-zero flow rates
+    /// Needed to compress the open_valves bitset size in memo
+    nonzeroflows: []u8,
+    num_nonzero: u8,
 
     fn insert_name(ng: []Name, name: []const u8, num_names: *u8) u8 {
         for (ng[0..num_names.*]) |name2, i| {
@@ -26,9 +30,12 @@ const Input = struct {
         var ng = try allocator.alloc(Name, num_valves);
         var flowrates = try allocator.alloc(u8, num_valves);
         var adjlst = try allocator.alloc([]u8, num_valves);
+        var nonzero = try allocator.alloc(u8, num_valves);
+        std.mem.set(u8, nonzero, 0); // dummy val
 
         var lines = std.mem.split(u8, std.mem.trim(u8, input, "\n"), "\n");
         var num_names: u8 = 0;
+        var num_nonzero: u8 = 0;
         while (lines.next()) |line| {
             const name = line[6..8];
             const name_i = insert_name(ng, name, &num_names);
@@ -36,7 +43,12 @@ const Input = struct {
             var neighs = try allocator.alloc(u8, num_neigh);
             {
                 var d: usize = 0;
-                flowrates[name_i] = @intCast(u8, parseIntChomp(line[23..], &d));
+                const fr = @intCast(u8, parseIntChomp(line[23..], &d));
+                flowrates[name_i] = fr;
+                if (fr != 0) {
+                    nonzero[name_i] = num_nonzero;
+                    num_nonzero += 1;
+                }
             }
             var i = std.mem.indexOf(u8, line, "valve").? + 5;
             while (line[i] != ' ') {
@@ -52,7 +64,7 @@ const Input = struct {
             }
             adjlst[name_i] = neighs;
         }
-        return Input{ .namegraph = ng, .flowrates = flowrates, .lst = adjlst };
+        return Input{ .namegraph = ng, .flowrates = flowrates, .lst = adjlst, .num_nonzero = num_nonzero, .nonzeroflows = nonzero };
     }
 };
 
@@ -87,7 +99,7 @@ fn getMax(inp: Input, open_valves: []bool, ovb: BS, cur_valve: u8, prev_valve: u
         // once, try with selfcontrib
         open_valves[cur_valve] = true;
         var ovb2 = ovb;
-        ovb2.set(cur_valve);
+        ovb2.set(inp.nonzeroflows[cur_valve]);
         for (inp.lst[cur_valve]) |neigh| {
             const withself = getMax(inp, open_valves, ovb2, neigh, cur_valve, newremtime - 1);
             max = std.math.max(max, withself + selfcontrib);
@@ -111,7 +123,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     // var fba = std.heap.FixedBufferAllocator.init(&buffer);
     // const allocator = fba.allocator();
     const allocator = std.heap.page_allocator;
-    const input = try read_input(dataDir, allocator, "day16_dummy.txt");
+    const input = try read_input(dataDir, allocator, "day16.txt");
     var inp = try Input.parse(allocator, input);
     std.debug.print("namegraph: {s}\n", .{inp.namegraph});
     std.debug.print("lst: {any}\n", .{inp.lst});
@@ -125,7 +137,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     for (memo) |*x| {
         x.* = try allocator.alloc([]u32, inp.lst.len);
         for (x.*) |*y| {
-            y.* = try allocator.alloc(u32, std.math.pow(usize, 2, inp.lst.len));
+            y.* = try allocator.alloc(u32, std.math.pow(usize, 2, inp.num_nonzero));
             std.mem.set(u32, y.*, std.math.maxInt(u32));
         }
     }
