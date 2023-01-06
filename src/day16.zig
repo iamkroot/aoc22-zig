@@ -69,7 +69,7 @@ const Input = struct {
 };
 
 var memo: [][][]u32 = undefined;
-const BS = std.bit_set.IntegerBitSet(64);
+const BS = std.bit_set.IntegerBitSet(32);
 
 fn getMax(inp: Input, open_valves: []bool, ovb: BS, cur_valve: u8, prev_valve: u8, remtime: u8) u32 {
     if (remtime <= 1) {
@@ -118,6 +118,134 @@ fn getMax(inp: Input, open_valves: []bool, ovb: BS, cur_valve: u8, prev_valve: u
     return max;
 }
 
+const Memo2Key = struct {
+    remtime: u8,
+    eleremtime: u8,
+    cur_valve: u8,
+    ele_valve: u8,
+    ov_mask: BS,
+
+    fn new(remtime: u8, eleremtime: u8, cur_valve: u8, ele_valve: u8, ov_mask: BS) Memo2Key {
+        return Memo2Key{ .remtime = remtime, .eleremtime = eleremtime, .cur_valve = cur_valve, .ele_valve = ele_valve, .ov_mask = ov_mask };
+    }
+};
+
+// var memo2x: [][][][][]u32 = undefined;
+var memo2: std.AutoHashMap(Memo2Key, u32) = undefined;
+
+fn getMax2(inp: Input, open_valves: []bool, ovb: BS, cur_valve: u8, ele_valve: u8, remtime: u8, eleremtime: u8) !u32 {
+    if (remtime <= 1 and eleremtime <= 1) {
+        return 0;
+    }
+    const memokey = Memo2Key.new(remtime, eleremtime, cur_valve, ele_valve, ovb);
+    if (memo2.get(memokey)) |val| {
+        // const oldval = memo2x[remtime][eleremtime][cur_valve][ele_valve][ovb.mask];
+        // std.debug.print("val: {} {} {}\n", .{ memokey, val, oldval });
+        return val;
+    }
+    var max: u32 = 0;
+
+    // first try opening self
+    if (remtime > 1 and !open_valves[cur_valve] and inp.flowrates[cur_valve] != 0) {
+        var newremtime = remtime - 1; // one minute to open it
+        // remaining contribution
+        var selfcontrib = @intCast(u32, inp.flowrates[cur_valve]) * newremtime;
+        open_valves[cur_valve] = true;
+        var ovb2 = ovb;
+        ovb2.set(inp.nonzeroflows[cur_valve]);
+
+        if (eleremtime > 1 and !open_valves[ele_valve] and inp.flowrates[ele_valve] != 0) {
+            // first open ele_valve
+            var neweleremtime = eleremtime - 1;
+            var elecontrib = @intCast(u32, inp.flowrates[ele_valve]) * neweleremtime;
+            open_valves[ele_valve] = true;
+            ovb2.set(inp.nonzeroflows[ele_valve]);
+            for (inp.lst[cur_valve]) |neigh| {
+                for (inp.lst[ele_valve]) |eleneigh| {
+                    const withself = try getMax2(inp, open_valves, ovb2, neigh, eleneigh, newremtime - 1, neweleremtime - 1);
+                    max = std.math.max(max, withself + selfcontrib + elecontrib);
+                }
+            }
+            ovb2.unset(inp.nonzeroflows[ele_valve]);
+            open_valves[ele_valve] = false;
+        }
+        for (inp.lst[cur_valve]) |neigh| {
+            if (eleremtime > 1) {
+                for (inp.lst[ele_valve]) |eleneigh| {
+                    const withself = try getMax2(inp, open_valves, ovb2, neigh, eleneigh, newremtime - 1, eleremtime - 1);
+                    max = std.math.max(max, withself + selfcontrib);
+                }
+            } else {
+                // don't move the elephant
+                const withself = try getMax2(inp, open_valves, ovb2, neigh, ele_valve, newremtime - 1, 0);
+                max = std.math.max(max, withself + selfcontrib);
+            }
+        }
+        // ovb.unset(cur_valve);
+        open_valves[cur_valve] = false;
+    }
+    // check results without self
+    var ovb2 = ovb;
+
+    if (remtime > 1) {
+        if (eleremtime > 1 and !open_valves[ele_valve] and inp.flowrates[ele_valve] != 0) {
+            // open ele_valve
+            var neweleremtime = eleremtime - 1;
+            var elecontrib = @intCast(u32, inp.flowrates[ele_valve]) * neweleremtime;
+            open_valves[ele_valve] = true;
+            ovb2.set(inp.nonzeroflows[ele_valve]);
+            for (inp.lst[cur_valve]) |neigh| {
+                for (inp.lst[ele_valve]) |eleneigh| {
+                    const withself = try getMax2(inp, open_valves, ovb2, neigh, eleneigh, remtime - 1, neweleremtime - 1);
+                    max = std.math.max(max, withself + elecontrib);
+                }
+            }
+            ovb2.unset(inp.nonzeroflows[ele_valve]);
+            open_valves[ele_valve] = false;
+        }
+        for (inp.lst[cur_valve]) |neigh| {
+            if (eleremtime > 1) {
+                for (inp.lst[ele_valve]) |eleneigh| {
+                    const withoutself = try getMax2(inp, open_valves, ovb, neigh, eleneigh, remtime - 1, eleremtime - 1);
+                    max = std.math.max(max, withoutself);
+                }
+            } else {
+                const withoutself = try getMax2(inp, open_valves, ovb, neigh, ele_valve, remtime - 1, 0);
+                max = std.math.max(max, withoutself);
+            }
+        }
+    } else if (eleremtime > 1) {
+        if (eleremtime > 1 and !open_valves[ele_valve] and inp.flowrates[ele_valve] != 0) {
+            // open ele_valve
+            var neweleremtime = eleremtime - 1;
+            var elecontrib = @intCast(u32, inp.flowrates[ele_valve]) * neweleremtime;
+            open_valves[ele_valve] = true;
+            ovb2.set(inp.nonzeroflows[ele_valve]);
+            for (inp.lst[cur_valve]) |neigh| {
+                for (inp.lst[ele_valve]) |eleneigh| {
+                    const withself = try getMax2(inp, open_valves, ovb2, neigh, eleneigh, 0, neweleremtime - 1);
+                    max = std.math.max(max, withself + elecontrib);
+                }
+            }
+            ovb2.unset(inp.nonzeroflows[ele_valve]);
+            open_valves[ele_valve] = false;
+        }
+        for (inp.lst[ele_valve]) |eleneigh| {
+            const withoutself = try getMax2(inp, open_valves, ovb, cur_valve, eleneigh, 0, eleremtime - 1);
+            max = std.math.max(max, withoutself);
+        }
+    }
+    if (remtime == 25) {
+        std.debug.print("cur_valve, ele_valve, max: {} {} {}\n", .{ cur_valve, ele_valve, max });
+    }
+    // memo2x[remtime][eleremtime][cur_valve][ele_valve][ovb.mask] = max;
+    try memo2.put(memokey, max);
+    if (memo2.count() % 1000000 == 0) {
+        std.debug.print("size: {} {}\n", .{ memo2.count(), memo2.capacity() });
+    }
+    return max;
+}
+
 pub fn part1(dataDir: std.fs.Dir) !void {
     // var buffer: [16000000]u8 = undefined;
     // var fba = std.heap.FixedBufferAllocator.init(&buffer);
@@ -158,9 +286,48 @@ pub fn part1(dataDir: std.fs.Dir) !void {
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day16_dummy.txt");
-    _ = input;
+    const allocator = std.heap.page_allocator;
+    const input = try read_input(dataDir, allocator, "day16.txt");
+    var inp = try Input.parse(allocator, input);
+    std.debug.print("namegraph: {s}\n", .{inp.namegraph});
+    std.debug.print("lst: {any}\n", .{inp.lst});
+    std.debug.print("flowrates: {any}\n", .{inp.flowrates});
+
+    const TIME: u32 = 26;
+
+    std.debug.print("pow: {}\n", .{std.math.pow(usize, 2, inp.num_nonzero)});
+
+    const size = (TIME) * (TIME) * inp.lst.len * inp.lst.len * std.math.pow(usize, 2, inp.num_nonzero);
+    std.debug.print("size: {}\n", .{size});
+    std.debug.print("memokeysize: {}\n", .{@sizeOf(Memo2Key)});
+    // return;
+
+    // memo2x = try allocator.alloc([][][][]u32, TIME + 1);
+    // for (memo2x) |*x| {
+    //     x.* = try allocator.alloc([][][]u32, TIME + 1);
+    //     for (x.*) |*y| {
+    //         y.* = try allocator.alloc([][]u32, inp.lst.len);
+    //         for (y.*) |*z| {
+    //             z.* = try allocator.alloc([]u32, inp.lst.len);
+    //             for (z.*) |*w| {
+    //                 w.* = try allocator.alloc(u32, std.math.pow(usize, 2, inp.num_nonzero));
+    //                 std.mem.set(u32, w.*, std.math.maxInt(u32));
+    //             }
+    //         }
+    //     }
+    // }
+    var nn = @intCast(u8, inp.lst.len);
+    const AApos = Input.insert_name(inp.namegraph, "AA", &nn);
+    var max: u32 = 0;
+    var open_valves = try allocator.alloc(bool, inp.lst.len);
+
+    memo2 = std.AutoHashMap(Memo2Key, u32).init(allocator);
+
+    std.mem.set(bool, open_valves, false);
+    var ovb = BS.initEmpty();
+    const v = try getMax2(inp, open_valves, ovb, AApos, AApos, TIME, TIME);
+    max = std.math.max(max, v);
+    std.debug.print("memo2 size: {}\n", .{ memo2.count() });
+
+    std.debug.print("max: {}\n", .{max});
 }
