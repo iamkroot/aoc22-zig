@@ -1,5 +1,5 @@
 const std = @import("std");
-const day16 = @import("day16.zig");
+const day17 = @import("day17.zig");
 
 /// Get path relative to root dir
 fn rootPath(comptime suffix: []const u8) []const u8 {
@@ -14,6 +14,6 @@ pub fn main() !void {
     const allocator = std.heap.page_allocator;
     const dataDirPath = try std.fs.realpathAlloc(allocator, rootPath("/data"));
     const dataDir = try std.fs.openDirAbsolute(dataDirPath, .{});
-    try day16.part1(dataDir);
-    try day16.part2(dataDir);
+    try day17.part1(dataDir);
+    try day17.part2(dataDir);
 }
