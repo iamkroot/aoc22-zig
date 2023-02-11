@@ -2,13 +2,13 @@ const std = @import("std");
 const read_input = @import("input.zig").read_input;
 const parseIntChomp = @import("utils.zig").parseIntChomp;
 
-const CalcTy = enum {
+const Op = enum {
     direct,
     add,
     mul,
     sub,
     div,
-    fn fromOpCh(ch: u8) CalcTy {
+    fn fromCh(ch: u8) Op {
         return switch (ch) {
             '+' => .add,
             '*' => .mul,
@@ -17,16 +17,16 @@ const CalcTy = enum {
             else => unreachable,
         };
     }
-    fn toCh(self: CalcTy) u8 {
+    fn toCh(self: Op) u8 {
         return switch (self) {
-            .direct => ' ',
             .add => '+',
             .mul => '*',
             .sub => '-',
             .div => '/',
+            else => unreachable,
         };
     }
-    fn interp(self: CalcTy, val1: i64, val2: i64) i64 {
+    fn interp(self: Op, val1: i64, val2: i64) i64 {
         return switch (self) {
             .direct => val1,
             .add => val1 + val2,
@@ -35,23 +35,54 @@ const CalcTy = enum {
             .div => @divExact(val1, val2),
         };
     }
+    // calculate x s.t. "(x binop other) == target" OR "(other binop x) == target", depending on pos
+    fn invert(self: Op, pos: HumanPos, other: i64, target: i64) i64 {
+        return switch (self) {
+            .direct => target,
+            .add => target - other,
+            .mul => @divExact(target, other),
+            .sub => switch (pos) {
+                .left => other + target,
+                .right => other - target,
+                else => unreachable,
+            },
+            .div => switch (pos) {
+                .left => other * target,
+                .right => @divExact(target, other),
+                else => unreachable,
+            },
+        };
+    }
 };
 
 const Pair = std.meta.Tuple(&[_]type{ u32, u32 });
 
 const Node = struct {
     val: i64 = 0,
-    calc_ty: CalcTy,
+    op: Op,
     deps: ?Pair = null,
-    rev_deps: std.ArrayList(u32),
+    parent: ?u32 = null,
+    // Store the direction to humn node for each subtree
+    human_pos: HumanPos = .none,
 
     fn calc(self: *Node, graph: *const Graph) void {
         if (self.val != 0) {
             return;
         }
         const ds = self.deps.?;
-        self.val = self.calc_ty.interp(graph.graph.get(ds[0]).?.val, graph.graph.get(ds[1]).?.val);
+        self.val = self.op.interp(graph.graph.get(ds[0]).?.val, graph.graph.get(ds[1]).?.val);
     }
+};
+
+const HumanPos = enum {
+    // left child
+    left,
+    // right child
+    right,
+    // cur node is humn
+    cur,
+    // human node is not in the current node's subtree
+    none,
 };
 
 const StringInterner = struct {
@@ -95,32 +126,53 @@ const Graph = struct {
         try internTable.table.ensureTotalCapacity(n);
         try graph.ensureTotalCapacity(n);
         var rootId: u32 = undefined;
+        var humanId: u32 = undefined;
         while (lines.next()) |line| {
             const name = line[0..4];
             const id = try internTable.insert(name);
             if (std.mem.eql(u8, name, "root")) {
                 rootId = id;
+            } else if (std.mem.eql(u8, name, "humn")) {
+                humanId = id;
             }
             var node: Node = undefined;
             if (std.ascii.isDigit(line[6])) {
                 var d: usize = 0;
                 const val = parseIntChomp(line[6..], &d);
-                node = Node{ .val = val, .calc_ty = .direct, .rev_deps = std.ArrayList(u32).init(allocator) };
+                node = Node{ .val = val, .op = .direct };
             } else {
-                const calc_ty = CalcTy.fromOpCh(line[11]);
+                const op = Op.fromCh(line[11]);
                 const firstDep = try internTable.insert(line[6..10]);
                 const secondDep = try internTable.insert(line[13..17]);
-                node = Node{ .val = 0, .calc_ty = calc_ty, .deps = Pair{ firstDep, secondDep }, .rev_deps = std.ArrayList(u32).init(allocator) };
+                node = Node{ .val = 0, .op = op, .deps = Pair{ firstDep, secondDep } };
             }
             try graph.put(id, node);
         }
 
-        // populate rev_deps
+        // populate parents
         var iter = graph.iterator();
         while (iter.next()) |e| {
             if (e.value_ptr.deps) |deps| {
-                try graph.getPtr(deps[0]).?.rev_deps.append(e.key_ptr.*);
-                try graph.getPtr(deps[1]).?.rev_deps.append(e.key_ptr.*);
+                graph.getPtr(deps[0]).?.parent = e.key_ptr.*;
+                graph.getPtr(deps[1]).?.parent = e.key_ptr.*;
+            }
+        }
+
+        // populate human_pos
+        {
+            var curNodeId = humanId;
+            var dir = HumanPos.cur;
+            while (true) {
+                var cur = graph.getPtr(curNodeId).?;
+                cur.human_pos = dir;
+                if (cur.parent) |parentId| {
+                    const parentNode = graph.getPtr(parentId).?;
+                    dir = if (parentNode.deps.?[0] == curNodeId) HumanPos.left else HumanPos.right;
+                    curNodeId = parentId;
+                } else {
+                    // std.debug.print("reached root!\n", .{});
+                    break;
+                }
             }
         }
         return Graph{ .graph = graph, .interner = internTable, .rootId = rootId };
@@ -131,9 +183,9 @@ const Graph = struct {
         while (iter.next()) |entry| {
             const name = self.interner.lookup(entry.key_ptr.*).?;
             std.debug.print("{s}: ", .{name});
-            switch (entry.value_ptr.calc_ty) {
+            switch (entry.value_ptr.op) {
                 .direct => std.debug.print("{d}", .{entry.value_ptr.val}),
-                else => std.debug.print("{s} {c} {s}", .{ self.interner.lookup(entry.value_ptr.deps.?[0]).?, entry.value_ptr.calc_ty.toCh(), self.interner.lookup(entry.value_ptr.deps.?[1]).? }),
+                else => std.debug.print("{s} {c} {s}", .{ self.interner.lookup(entry.value_ptr.deps.?[0]).?, entry.value_ptr.op.toCh(), self.interner.lookup(entry.value_ptr.deps.?[1]).? }),
             }
             std.debug.print("\n", .{});
         }
@@ -196,12 +248,11 @@ pub fn Queue(comptime Child: type) type {
 }
 
 fn toposort(graph: *Graph, allocator: std.mem.Allocator) !void {
-
     var q = Queue(u32).init(allocator);
     {
         var iter = graph.graph.iterator();
         while (iter.next()) |e| {
-            if (e.value_ptr.calc_ty == .direct) {
+            if (e.value_ptr.op == .direct) {
                 try q.enqueue(e.key_ptr.*);
             }
         }
@@ -209,34 +260,63 @@ fn toposort(graph: *Graph, allocator: std.mem.Allocator) !void {
     while (q.dequeue()) |n| {
         const nodeId = n;
         const node = graph.graph.getPtr(nodeId).?;
-        for (node.rev_deps.items) |childId| {
-            const childNode = graph.graph.getPtr(childId).?;
-            const otherDepId: u32 = if (childNode.deps.?[0] == nodeId) childNode.deps.?[1] else childNode.deps.?[0];
+        if (node.parent) |parentId| {
+            const parentNode = graph.graph.getPtr(parentId).?;
+            const otherDepId: u32 = if (parentNode.deps.?[0] == nodeId) parentNode.deps.?[1] else parentNode.deps.?[0];
             const otherDepNode = graph.graph.getPtr(otherDepId).?;
             if (otherDepNode.val != 0) {
-                childNode.calc(graph);
-                try q.enqueue(childId);
+                parentNode.calc(graph);
+                try q.enqueue(parentId);
             }
+        } else {
+            break;
         }
     }
-    std.debug.print("root {}\n", .{graph.graph.get(graph.rootId).?.val});
 }
 
 pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [1400000]u8 = undefined;
+    var buffer: [400000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
     const input = try read_input(dataDir, allocator, "day21.txt");
     defer allocator.free(input);
     var graph = try Graph.parse(allocator, input);
-    graph.print();
     try toposort(&graph, allocator);
+    std.debug.print("root: {}\n", .{graph.graph.get(graph.rootId).?.val});
+    // ideally we should free the graph, but buffer will be dropped anyway...
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
+    var buffer: [400000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day21_dummy.txt");
+    const input = try read_input(dataDir, allocator, "day21.txt");
     defer allocator.free(input);
+    var graph = try Graph.parse(allocator, input);
+    // graph.print();
+    try toposort(&graph, allocator);
+    {
+        var target: i64 = 0;
+        var curNodeId = graph.rootId;
+        while (true) {
+            const curNode = graph.graph.getPtr(curNodeId).?;
+            switch (curNode.human_pos) {
+                .right, .left => {
+                    const d = curNode.deps.?;
+                    const otherId = if (curNode.human_pos == .left) d[1] else d[0];
+                    const otherNode = graph.graph.getPtr(otherId).?;
+                    target = if (curNodeId == graph.rootId)
+                        otherNode.val
+                    else
+                        curNode.op.invert(curNode.human_pos, otherNode.val, target);
+                    curNodeId = if (curNode.human_pos == .left) d[0] else d[1];
+                },
+                .cur => {
+                    std.debug.print("target: {}\n", .{target});
+                    break;
+                },
+                .none => unreachable,
+            }
+        }
+    }
 }
