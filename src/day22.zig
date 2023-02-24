@@ -22,25 +22,21 @@ const Idx = struct {
     }
 };
 
-fn FacingMap(comptime T: type) type {
-    return std.AutoArrayHashMap(Facing, T);
-}
-
-const MaybeCube = struct {
+const Cube = struct {
     const Self = @This();
+    const Neighs = std.AutoArrayHashMap(Facing, usize);
     const Face = struct {
         id: usize,
-        neighs: FacingMap(usize),
+        neighs: Neighs,
         top_left: Idx,
         side: u32,
-        // only needed during build time
-        visited: bool = false,
         fn contains(self: *const Face, idx: Idx) bool {
             return self.top_left.i <= idx.i and self.top_left.j <= idx.j and idx.i < (self.top_left.i + self.side) and idx.j < (self.top_left.j + self.side);
         }
-        // Given the id of a neighbour, find the boundary of self at which it is connected.
+        /// Given the id of a neighbour, find the boundary of self at which it is connected.
+        /// it should be possible to store this value inside neighs field instead of computing it here
         fn reverseLookup(self: *const Face, id: usize) Facing {
-            for (Facing.allDirsCCW[0..4]) |d| {
+            for (Facing.allDirsCCW) |d| {
                 if (self.neighs.get(d)) |f| {
                     if (f == id) {
                         return d;
@@ -58,14 +54,12 @@ const MaybeCube = struct {
             _ = fmt;
             _ = options;
             try writer.print("face {}: {any}\n", .{ self.id + 1, self.top_left });
-            for (Facing.allDirsCCW[0..4]) |dir| {
+            for (Facing.allDirsCCW) |dir| {
                 try writer.print("\t{any}: ", .{dir});
                 if (self.neighs.get(dir)) |n| {
                     try writer.print("{}\n", .{n + 1});
                 } else {
-                    try writer.writeAll(
-                        "none\n",
-                    );
+                    try writer.writeAll("none\n");
                 }
             }
         }
@@ -75,7 +69,7 @@ const MaybeCube = struct {
     fn fromgrid(allocator: Allocator, side: u32, grid: *const InputGrid) !Self {
         var faces: [6]Face = .{};
         for (faces) |*face, i| {
-            face.* = Face{ .id = i, .neighs = FacingMap(usize).init(allocator), .top_left = undefined, .side = side };
+            face.* = Face{ .id = i, .neighs = Neighs.init(allocator), .top_left = undefined, .side = side };
             try face.neighs.ensureTotalCapacity(4);
         }
         // var curFace: ?*Face = null;
@@ -115,14 +109,13 @@ const MaybeCube = struct {
             }
         }
         var cube = Self{ .faces = faces, .side = side };
-        std.debug.print("cube: {any}\n", .{cube});
+        std.debug.print("initial cube: {any}\n", .{cube});
         try cube.fillAllNeighs(allocator);
         return cube;
     }
     // fill the remaining slots in "neighs" field for each face.
     // In essence, reconstruct the 3D cube from the 2D layout.
     fn fillAllNeighs(self: *Self, allocator: Allocator) !void {
-        // TODO: need to record the "flip" of each face when it meets the neighbour
         var q = Queue(usize).init(allocator);
         for (self.faces) |face| {
             if (face.neighs.count() < 2) {
@@ -134,23 +127,21 @@ const MaybeCube = struct {
         var processed = std.AutoHashMap([3]usize, void).init(allocator);
         while (q.dequeue()) |faceId| {
             var face = &self.faces[faceId];
-            var maybeNeighs: [5]?*Face = .{};
+            var maybeNeighs: [4]?*Face = .{};
             for (Facing.allDirsCCW) |dir, i| {
                 maybeNeighs[i] = if (face.neighs.get(dir)) |id| &self.faces[id] else null;
             }
             var i: usize = 0;
-            while (i < 5) : (i += 1) {}
-            i = 0;
             while (i < 4) : (i += 1) {
                 if (maybeNeighs[i]) |n1| {
-                    if (maybeNeighs[i + 1]) |n2| {
+                    if (maybeNeighs[(i + 1) % 4]) |n2| {
                         const key = [3]usize{ faceId, n1.id, n2.id };
                         var gp = try processed.getOrPut(key);
                         if (gp.found_existing) {
                             continue;
                         }
                         std.debug.print("processing: {any}\n", .{key});
-                        // find which borders n1 and n2 are connected to face
+                        // find the borders of n1 and n2 that are connected to face
                         const revDir1 = n1.reverseLookup(faceId);
                         const revDir2 = n2.reverseLookup(faceId);
                         const border1 = revDir1.makeTurn(.cw);
@@ -194,6 +185,7 @@ const Cell = enum(u8) {
     empty = '.',
     /// Obstacle
     rock = '#',
+    // will be used for drawing the traversed path
     left = '<',
     right = '>',
     up = '^',
@@ -224,9 +216,9 @@ pub fn Grid(comptime T: type, comptime fmtEl: []const u8) type {
         numCols: u32,
         nums: []T,
         cur: State,
-        // end: Idx,
+        curFace: usize = 0,
         allocator: std.mem.Allocator,
-        cubeSide: ?u32,
+        cube: ?Cube,
 
         pub fn parse(allocator: std.mem.Allocator, numCols: u32, numRows: u32, input: []const u8, ispart2: bool) !Self {
             var nums = try allocator.alloc(T, numRows * numCols);
@@ -257,14 +249,18 @@ pub fn Grid(comptime T: type, comptime fmtEl: []const u8) type {
             while (j < numCols) : (j += 1) {
                 nums[i * numCols + j] = .vacuum;
             }
-            return Self{
+            var grid = Self{
                 .numCols = numCols,
                 .numRows = numRows,
                 .nums = nums,
                 .cur = State{ .idx = start.?, .facing = Facing.up },
                 .allocator = allocator,
-                .cubeSide = if (ispart2) std.math.sqrt(surfaceArea / 6) else null,
+                .cube = null,
             };
+            if (ispart2) {
+                grid.cube = try Cube.fromgrid(allocator, std.math.sqrt(surfaceArea / 6), &grid);
+            }
+            return grid;
         }
 
         pub fn get(self: *Self, i: u32, j: u32) *T {
@@ -288,9 +284,6 @@ pub fn Grid(comptime T: type, comptime fmtEl: []const u8) type {
         ) !void {
             _ = fmt;
             _ = options;
-            if (self.cubeSide) |cubeSide| {
-                try writer.print("cubeSide: {} ", .{cubeSide});
-            }
             try writer.print("cur: {any}\n", .{self.cur});
             const m = self.numRows;
             const n = self.numCols;
@@ -332,73 +325,50 @@ pub fn Grid(comptime T: type, comptime fmtEl: []const u8) type {
             }
             return Idx{ .i = newi, .j = newj };
         }
-
-        fn getNextWarped(cubeSide: u32, facing: Facing, idx: Idx) State {
-            const i = idx.i;
-            const j = idx.j;
-            const cubeX = j % cubeSide;
-            const cubeY = i % cubeSide;
-            const regionNum: u8 = if (i < cubeSide) @as(u8, 1) else if (j < cubeSide) 2 else if (j < 2 * cubeSide) 3 else if (j >= 3 * cubeSide) 6 else if (i >= 2 * cubeSide) 5 else 4;
-            std.debug.print("regionNum: {}\n", .{regionNum});
-            return switch (regionNum) {
-                1 => switch (facing) {
-                    // next region = 2, top border
-                    .up => State{ .facing = .down, .idx = Idx{ .i = cubeSide, .j = cubeSide - 1 + (cubeSide - cubeX) } },
-                    // next region = 3, top border
-                    .left => State{ .facing = .down, .idx = Idx{ .i = cubeSide, .j = cubeSide + cubeY } },
-                    // next region = 6, right border
-                    .right => State{ .facing = .left, .idx = Idx{ .i = cubeSide * 2 + (cubeSide - cubeY) - 1, .j = cubeSide * 4 - 1 } },
-                    else => unreachable,
-                },
-                2 => switch (facing) {
-                    // next region = 1, top border
-                    .up => State{ .facing = .down, .idx = Idx{ .i = 0, .j = cubeSide * 2 + (cubeSide - cubeX) - 1 } },
-                    // next region = 6, bottom border
-                    .left => State{ .facing = .up, .idx = Idx{ .i = cubeSide * 3 - 1, .j = cubeSide * 3 + cubeY } },
-                    // next region = 5, bottom border
-                    .down => State{ .facing = .up, .idx = Idx{ .i = cubeSide * 3 - 1, .j = cubeSide * 2 + (cubeSide - cubeX) - 1 } },
-                    else => unreachable,
-                },
-                3 => switch (facing) {
-                    // next region = 1, left border
-                    .up => State{ .facing = .right, .idx = Idx{ .i = cubeX, .j = cubeSide * 2 } },
-                    // next region = 5, left border
-                    .down => State{ .facing = .right, .idx = Idx{ .i = cubeSide * 2 + (cubeSide - cubeX) - 1, .j = cubeSide * 2 } },
-                    else => unreachable,
-                },
-                4 => switch (facing) {
-                    // next region = 6, top border
-                    .right => State{ .facing = .down, .idx = Idx{ .i = cubeSide * 2, .j = cubeSide * 3 + (cubeSide - cubeY) - 1 } },
-                    else => unreachable,
-                },
-                5 => switch (facing) {
-                    // next region = 3, bottom border
-                    .left => State{ .facing = .up, .idx = Idx{ .i = cubeSide * 2 - 1, .j = cubeSide + (cubeSide - cubeY) - 1 } },
-                    // next region = 2, bottom border
-                    .down => State{ .facing = .up, .idx = Idx{ .i = cubeSide * 2 - 1, .j = (cubeSide - cubeX) - 1 } },
-                    else => unreachable,
-                },
-                6 => switch (facing) {
-                    // next region = 4, right border
-                    .up => State{ .facing = .left, .idx = Idx{ .i = cubeSide + (cubeSide - cubeX) - 1, .j = cubeSide * 3 - 1 } },
-                    // next region = 1, right border
-                    .right => State{ .facing = .left, .idx = Idx{ .i = (cubeSide - cubeY) - 1, .j = cubeSide * 3 - 1 } },
-                    // next region = 2, left border
-                    .down => State{ .facing = .right, .idx = Idx{ .i = cubeSide + (cubeSide - cubeX) - 1, .j = 0 } },
-                    else => unreachable,
-                },
-                else => unreachable,
-            };
+        fn getNextOnCube(self: *Self, cur: State) State {
+            const cube = &self.cube.?;
+            const curFace = &cube.faces[self.curFace];
+            if (self.getNextNoWarpStraight(cur.facing, cur.idx)) |nextIdx| {
+                if (curFace.contains(nextIdx)) {
+                    return State{ .idx = nextIdx, .facing = cur.facing };
+                }
+            }
+            // change face
+            const nextFaceId = curFace.neighs.get(cur.facing).?;
+            // std.debug.print("{} nextFaceId: {}\n", .{ curFace.id + 1,  nextFaceId + 1 });
+            const nextFace = &cube.faces[nextFaceId];
+            self.curFace = nextFaceId;
+            const i = cur.idx.i;
+            const j = cur.idx.j;
+            const cubeX = j % cube.side;
+            const cubeY = i % cube.side;
+            // if on the vertical borders, use i, else use j
+            const cubeDelta = if (cur.facing == .left or cur.facing == .right) cubeY else cubeX;
+            const newBorder = nextFace.reverseLookup(curFace.id);
+            // These are the only cases when the cubeDelta needs to be negated
+            const isFlipped = (newBorder == cur.facing) or (newBorder == .left and cur.facing == .down) or (newBorder == .down and cur.facing == .left) or (newBorder == .right and cur.facing == .up) or (newBorder == .up and cur.facing == .right);
+            const newFacing = newBorder.makeTurn(.cw).makeTurn(.cw);
+            var newi = nextFace.top_left.i;
+            var newj = nextFace.top_left.j;
+            // std.debug.print("newi, newj: {} {} {}\n", .{ newi, newj, cubeDelta });
+            if (newBorder == .right or newBorder == .left) {
+                if (newBorder == .right) {
+                    newj += cube.side - 1;
+                }
+                newi += if (isFlipped) (cube.side - cubeDelta) - 1 else cubeDelta;
+            }
+            if (newBorder == .down or newBorder == .up) {
+                if (newBorder == .down) {
+                    newi += cube.side - 1;
+                }
+                newj += if (isFlipped) (cube.side - cubeDelta) - 1 else cubeDelta;
+            }
+            return State{ .facing = newFacing, .idx = Idx{ .i = newi, .j = newj } };
         }
 
         fn getNext2(self: *Self, cur: State) State {
-            if (self.cubeSide) |cubeSide| {
-                if (self.getNextNoWarpStraight(cur.facing, cur.idx)) |next| {
-                    if (self.getvalIdx(next) != .vacuum) {
-                        return State{ .idx = next, .facing = cur.facing };
-                    }
-                }
-                return Self.getNextWarped(cubeSide, cur.facing, cur.idx);
+            if (self.cube != null) {
+                return self.getNextOnCube(cur);
             } else {
                 var nextIdx = self.getNextStraight(cur.facing, cur.idx);
                 if (self.getvalIdx(nextIdx) != .vacuum) {
@@ -421,17 +391,19 @@ pub fn Grid(comptime T: type, comptime fmtEl: []const u8) type {
             curCell.* = @intToEnum(T, @enumToInt(facing));
             var i: i32 = 0;
             while (i < amt) : (i += 1) {
+                const curFaceId = self.curFace;
                 const nextState = self.getNext2(self.cur);
                 var nextCell = self.getIdx(nextState.idx);
                 // std.debug.print("step : {any} {any}\n", .{ nextIdx, nextCell.* });
 
                 if (nextCell.* == .rock) {
+                    // We _really_ ought to store curFace inside State...
+                    self.curFace = curFaceId;
                     break;
                 }
                 self.cur = nextState;
                 nextCell.* = @intToEnum(T, @enumToInt(self.cur.facing));
             }
-            // std.debug.print("final: {any}\n", .{ self.cur });
         }
     };
 }
@@ -464,7 +436,7 @@ const Facing = enum(u8) {
     right = '>',
     up = '^',
     down = 'v',
-    const allDirsCCW = [5]Facing{ .up, .left, .down, .right, .up };
+    const allDirsCCW = [4]Facing{ .up, .left, .down, .right };
 
     fn fromCh(ch: u8) Self {
         return @intToEnum(Self, ch);
@@ -588,20 +560,19 @@ pub fn part2(dataDir: std.fs.Dir) !void {
     var buffer: [1400000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day22_dummy.txt");
+    const input = try read_input(dataDir, allocator, "day22.txt");
     defer allocator.free(input);
     var inp = try parseInput(allocator, input, true);
     var grid = inp[0];
-    var moves = inp[1];
     std.debug.print("grid:\n{any}\n", .{grid});
-    // std.debug.print("warped: {any}\n", .{ InputGrid.getNextWarped(grid.cubeSide.?, .right, Idx{.i = 5, .j = 11}) });
+    std.debug.print("cube:\n{any}\n", .{grid.cube.?});
+    // std.debug.print("warped: {any}\n", .{ grid.getNextWarped2(State{.facing=.right, .idx =Idx{.i = 2, .j = 11}})});
+    var moves = inp[1];
     // std.debug.print("moves: {any}\n", .{moves});
     for (moves) |move| {
         grid.makeMove(move);
         // std.debug.print("grid:\n{any}\n", .{grid});
     }
-    var cube = try MaybeCube.fromgrid(allocator, grid.cubeSide.?, &grid);
-    std.debug.print("cube: {any}\n", .{cube});
 
     const score = grid.cur.score();
 
