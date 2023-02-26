@@ -2,7 +2,7 @@ const std = @import("std");
 const read_input = @import("input.zig").read_input;
 const Allocator = std.mem.Allocator;
 
-const I = i64;
+const I = i32;
 
 const Idx = struct {
     i: I,
@@ -131,13 +131,10 @@ const Map = struct {
         try writer.writeAll("\n");
     }
     /// Calculate the next pos for the given elf (phase 1)
-    fn nextIdx(self: *Self, pos: Idx, start_move_dir: MoveDir) ?Idx {
+    fn nextIdx(self: *const Self, pos: Idx, start_move_dir: MoveDir) ?Idx {
         var valid_dirs = [_]bool{true} ** 8;
         var no_neigh = true;
         var neighs = pos.neighs();
-        if (pos.i == 5 and pos.j == 4) {
-            std.debug.print("locs: {any}", .{self});
-        }
         while (neighs.next()) |n| {
             if (self.locs.contains(n[0])) {
                 valid_dirs[@enumToInt(n[1])] = false;
@@ -146,14 +143,13 @@ const Map = struct {
         }
         if (no_neigh) {
             // doesn't need to move
-            std.debug.print("no neigh\n", .{});
             return null;
         }
-        std.debug.print("valid_dirs: {any}\n", .{valid_dirs});
+        // std.debug.print("valid_dirs: {any}\n", .{valid_dirs});
         var move_dir = start_move_dir;
         for (0..4) |_| {
             if (move_dir.checkOpen(valid_dirs)) {
-                std.debug.print("can move to: {any}\n", .{move_dir});
+                // std.debug.print("can move to: {any}\n", .{move_dir});
                 return pos.move(move_dir);
             }
             move_dir = move_dir.next();
@@ -161,18 +157,47 @@ const Map = struct {
 
         return null;
     }
+    var localBuf = [_]u8{0} ** 1000000;
+    var localAlloc = std.heap.FixedBufferAllocator.init(&localBuf);
     fn step(self: *Self, move_dir: MoveDir) !bool {
-        std.debug.print("movedir: {any} locs: {any}", .{ move_dir, self });
         var it = self.locs.keyIterator();
-        var new_locs = std.AutoHashMap(Idx, void).init(self.locs.allocator);
+        localAlloc.reset();
+
+        // Directly storing new_locs using self.locs.allocator would be the best.
+        // ```zig
+        //  new_locs = (use self.locs.allocator to create new hashmap)
+        //  ... processing
+        //  // swap the two
+        //  self.locs.deinit() // clear old
+        //  self.locs = new_locs; // change pointers
+        // ```
+        // But when self.locs.allocator is a FixedBufferAllocator, this causes a "memleak".
+        // This is because FixedBufferAllocator always allocates at the end of the
+        // previous allocation, even if there is enough space at the start of buffer.
+        // So, if we use self.locs.allocator for new_locs, this is what happens-
+        // step0
+        //  start: [self.locs..................................]
+        //  alloc: [self.locs|new_locs.........................]
+        //  swap : [.........self.locs.........................]
+        // step1
+        //  start: [.........self.locs.........................]
+        //  alloc: [.........self.locs|new_locs................]
+        //          ^new_locs should ideally have come here
+        //  swap : [..................self.locs................]
+        // step2
+        //  start: [..................self.locs................]
+        //  alloc: [..................self.locs|new_locs.......]
+        //  swap : [...........................self.locs.......]
+        // ... so on, until we hit end of buffer
+        var new_locs = std.AutoHashMap(Idx, void).init(localAlloc.allocator());
         try new_locs.ensureTotalCapacity(self.locs.count());
         // map from new_pos -> old_pos, to detect conflicts
-        var moved = std.AutoHashMap(Idx, ?Idx).init(self.locs.allocator);
+        var moved = std.AutoHashMap(Idx, ?Idx).init(localAlloc.allocator());
         try moved.ensureTotalCapacity(self.locs.count());
         var any_elf_moved = false;
         while (it.next()) |elf_pos_ptr| {
             const elf_pos = elf_pos_ptr.*;
-            std.debug.print("Moving elf at {}\n", .{elf_pos});
+            // std.debug.print("Moving elf at {}\n", .{elf_pos});
             if (self.nextIdx(elf_pos, move_dir)) |next_pos| {
                 // even if we don't move due to conflict, some other elf will move
                 var gop = moved.getOrPutAssumeCapacity(next_pos);
@@ -202,9 +227,14 @@ const Map = struct {
                 new_locs.putAssumeCapacity(elf_pos, {});
             }
         }
-        self.locs.deinit();
-        moved.deinit();
-        self.locs = new_locs;
+        // so we manually copy new_locs into self.locs
+        self.locs.clearRetainingCapacity();
+        {
+            var new_it = new_locs.keyIterator();
+            while (new_it.next()) |new_loc| {
+                self.locs.putAssumeCapacity(new_loc.*, {});
+            }
+        }
         return any_elf_moved;
     }
     fn printGrid(self: *Self) u64 {
@@ -250,22 +280,37 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     var move_dir = MoveDir.n;
     for (0..10) |i| {
         std.debug.print("Round {}\n", .{i});
-        _ = map.printGrid();
+        // _ = map.printGrid();
         if (!try map.step(move_dir)) {
             break;
         }
         move_dir = move_dir.next();
     }
     const empty = map.printGrid();
-    std.debug.print("empty: {}", .{empty});
+    std.debug.print("empty: {}\n", .{empty});
 
     // _ = map.nextIdx(Idx{ .i = 2, .j = 2 }, .n);
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
+    var buffer: [1400000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day23_dummy.txt");
+    const input = try read_input(dataDir, allocator, "day23.txt");
     defer allocator.free(input);
+    var map = try Map.parse(allocator, input);
+    std.debug.print("map.locs: {any}\n", .{map});
+    std.debug.print("memuse: {}\n", .{fba.end_index});
+    var move_dir = MoveDir.n;
+    var i: usize = 1;
+    while (true) : (i += 1) {
+        std.debug.print("Round {} memuse: {}\n", .{ i, fba.end_index });
+        // _ = map.printGrid();
+        if (!try map.step(move_dir)) {
+            break;
+        }
+        move_dir = move_dir.next();
+    }
+    const empty = map.printGrid();
+    std.debug.print("empty: {}, round: {}\n", .{ empty, i });
 }
