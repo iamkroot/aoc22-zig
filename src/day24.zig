@@ -6,6 +6,15 @@ const Dir = enum(u8) {
     e = '>',
     s = 'v',
     w = '<',
+    const all = [4]Dir{ .n, .e, .s, .w };
+    fn opp(self: Dir) Dir {
+        switch (self) {
+            .n => .s,
+            .s => .n,
+            .e => .w,
+            .w => .e,
+        }
+    }
     pub fn format(
         self: Dir,
         comptime fmt: []const u8,
@@ -32,6 +41,28 @@ const Cell = packed struct(u4) {
     fn empty() Self {
         return Self{ .n = false, .e = false, .s = false, .w = false };
     }
+    fn or_(self: *Self, other: Self) void {
+        self.n |= other.n;
+        self.e |= other.e;
+        self.s |= other.s;
+        self.w |= other.w;
+    }
+    fn contains(self: Self, dir: Dir) bool {
+        return switch (dir) {
+            .n => self.n,
+            .e => self.e,
+            .s => self.s,
+            .w => self.w,
+        };
+    }
+    fn set(self: *Self, dir: Dir) void {
+        switch (dir) {
+            .n => self.n = true,
+            .e => self.e = true,
+            .s => self.s = true,
+            .w => self.w = true,
+        }
+    }
     fn fromDir(dir: Dir) Self {
         var cell = Self.empty();
         switch (dir) {
@@ -52,9 +83,9 @@ const Cell = packed struct(u4) {
         _ = options;
         const n = self.count();
         if (n == 1) {
-            try writer.print("{any}", .{if (self.n) Dir.n else if (self.e) Dir.e else if (self.w) Dir.w else Dir.s});
+            try writer.print("{c}", .{if (self.n) Dir.n else if (self.e) Dir.e else if (self.w) Dir.w else Dir.s});
         } else if (n > 1) {
-            try writer.print("{}", .{n});
+            try writer.print("{d}", .{n});
         } else {
             try writer.writeAll(".");
         }
@@ -77,10 +108,28 @@ const Idx = struct {
                 @intCast(u32, @intCast(i32, self.j) + j),
         };
     }
+    fn neigh(self: Idx, dir: Dir) ?Idx {
+        return switch (dir) {
+            .n => self.add(-1, 0),
+            .s => self.add(1, 0),
+            .w => self.add(0, -1),
+            .e => self.add(0, 1),
+        };
+    }
+    pub fn format(
+        self: Idx,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("({d},{d})", .{ self.i, self.j });
+    }
 };
 
 const Grid = struct {
-    const This = @This();
+    const Self = @This();
     numRows: u32,
     numCols: u32,
     cells: []Cell,
@@ -88,7 +137,7 @@ const Grid = struct {
     end: Idx,
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, input: []const u8) !This {
+    pub fn init(allocator: std.mem.Allocator, input: []const u8) !Self {
         const numCols = @intCast(u32, std.mem.indexOf(u8, input, "\n").?);
         const numRows = @intCast(u32, std.mem.count(u8, std.mem.trim(u8, input, "\n"), "\n") + 1);
         var cells = try allocator.alloc(Cell, numRows * numCols);
@@ -106,7 +155,7 @@ const Grid = struct {
             }
             i += 1;
         }
-        return This{
+        return Self{
             .numCols = numCols,
             .numRows = numRows,
             .cells = cells,
@@ -116,27 +165,112 @@ const Grid = struct {
         };
     }
 
-    pub fn get(self: *This, i: u32, j: u32) *Cell {
+    pub fn get(self: *Self, i: u32, j: u32) *Cell {
         return &self.cells[(i * self.numCols) + j];
     }
-    pub fn getIdx(self: *This, idx: Idx) *Cell {
+    pub fn getIdx(self: *Self, idx: Idx) *Cell {
         return self.get(idx.i, idx.j);
     }
-    pub fn getval(self: *const This, i: u32, j: u32) Cell {
+    pub fn getval(self: *const Self, i: u32, j: u32) Cell {
         return self.cells[(i * self.numCols) + j];
     }
-    pub fn getvalIdx(self: *const This, idx: Idx) Cell {
+    pub fn getvalIdx(self: *const Self, idx: Idx) Cell {
         return self.getval(idx.i, idx.j);
     }
 
+    fn getNextIdx(self: *const Self, idx: Idx, dir: Dir) Idx {
+        var next = idx.neigh(dir).?;
+        if (next.i == 0) {
+            next.i == self.numRows - 2;
+        } else if (next.i == self.numRows - 1) {
+            next.i = 1;
+        } else if (next.j == 0) {
+            next.j == self.numCols - 2;
+        } else if (next.j == self.numCols - 1) {
+            next.j = 1;
+        }
+        return next;
+    }
+
+    /// Find the idx of cell approaching from `dir` that will be present at given `idx` after `time` turns.
+    fn idxAfter(self: *const Self, idx: Idx, dir: Dir, time: u32) Idx {
+        if (time == 0) {
+            return idx;
+        }
+        var i = idx.i;
+        var j = idx.j;
+        const m = self.numCols - 2;
+        const n = self.numRows - 2;
+        std.debug.assert(i >= 1);
+        std.debug.assert(j >= 1);
+        std.debug.assert(m > 0);
+        std.debug.assert(n > 0);
+        switch (dir) {
+            .n => {
+                // -1, +1 are needed to account for the walls
+                return Idx{ .i = (i - 1 + (time % n)) % n + 1, .j = j };
+            },
+            .w => {
+                return Idx{ .j = (j - 1 + (time % m)) % m + 1, .i = i };
+            },
+            .s => {
+                // there is probably a simpler way to do this...
+                if (i > time) {
+                    return Idx{ .i = i - time, .j = j };
+                } else if (i == time) {
+                    return Idx{ .i = n, .j = j };
+                }
+                var t = -@intCast(i32, time - (i - 1));
+                // +1 to account for the top wall
+                return Idx{ .i = @intCast(u32, @mod(t, @intCast(i32, n))) + 1, .j = j };
+            },
+            .e => {
+                if (j > time) {
+                    return Idx{ .i = i, .j = j - time };
+                } else if (j == time) {
+                    return Idx{ .i = i, .j = m };
+                }
+                var t = -@intCast(i32, time - (j - 1));
+                return Idx{ .i = i, .j = @intCast(u32, @mod(t, @intCast(i32, m))) + 1 };
+            },
+        }
+    }
+    /// Get the cell contents at `idx` after `time` turns.
+    fn valAfter(self: *const Self, idx: Idx, time: u32) Cell {
+        if (time == 0) {
+            return self.getvalIdx(idx);
+        }
+        var cell = Cell.empty();
+        inline for (Dir.all) |dir| {
+            const skipIdx = self.idxAfter(idx, dir, time);
+            const v = self.getvalIdx(skipIdx);
+            if (v.contains(dir)) {
+                cell.set(dir);
+            }
+        }
+        return cell;
+    }
+
+    /// Returns true if `idx` does not have any blizzards in the next turn.
+    fn nextSafe(self: *const Self, idx: Idx) bool {
+        inline for (Dir.all) |dir| {
+            var nextIdx = self.getNextIdx(idx, dir);
+            if (!self.getvalIdx(nextIdx).contains(dir.opp())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     pub fn format(
-        self: This,
+        self: Self,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
         _ = fmt;
-        _ = options;
+        // HACK: We interpret the precision field as the time value
+        const time = if (options.precision) |t| @intCast(u32, t) else 0;
         for (0..self.numRows) |i_| {
             var i = @intCast(u32, i_);
             for (0..self.numCols) |j_| {
@@ -146,7 +280,7 @@ const Grid = struct {
                 } else if (i == 0 or i == self.numRows - 1 or j == 0 or j == self.numCols - 1) {
                     try writer.writeAll("#");
                 } else {
-                    try writer.print("{c}", .{self.getval(i, j)});
+                    try writer.print("{c}", .{self.valAfter(Idx{ .i = i, .j = j }, time)});
                 }
                 if (j < self.numCols - 1) {} else {
                     try writer.writeAll("\n");
@@ -163,7 +297,8 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     const input = try read_input(dataDir, allocator, "day24_dummy.txt");
     defer allocator.free(input);
     var grid = try Grid.init(allocator, input);
-    std.debug.print("grid:\n{}\n", .{grid});
+    std.debug.print("grid at t=0:\n{}\n", .{grid});
+    std.debug.print("grid at t=1:\n{:.1}\n", .{grid});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
