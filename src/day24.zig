@@ -195,7 +195,7 @@ const Grid = struct {
     fn isBoundary(self: *const Self, idx: Idx) bool {
         const i = idx.i;
         const j = idx.j;
-        return i == 0 or i == self.numRows - 1 or j == 0 or j == self.numCols - 1;
+        return i == 0 or i >= self.numRows - 1 or j == 0 or j >= self.numCols - 1;
     }
 
     /// Find the idx of cell approaching from `dir` that will be present at given `idx` after `time` turns.
@@ -294,15 +294,14 @@ const Grid = struct {
             }
         }
     }
-    fn addNextPos(self: *const Self, pos: Pos, nextPos: *PosSet) !void {
+    fn addNextPos(self: *const Self, pos: Pos, nextPos: *PosSet, goal: Idx) !void {
         // std.debug.print("Adding next poses for {any}\n", .{pos});
         for (Dir.all) |dir| {
             const nextIdx = if (pos.idx.neigh(dir)) |n| n else continue;
             // std.debug.print("\tTesting nextIdx {}\n", .{nextIdx});
-            if (nextIdx.i == self.end.i and nextIdx.j == self.end.j) {
-                std.debug.print("ENDDDD {}\n", .{pos.time + 1});
+            if (nextIdx.i == goal.i and nextIdx.j == goal.j) {
+                std.debug.print("Goal {} in time {}\n", .{ goal, pos.time + 1 });
                 try nextPos.put(nextIdx, {});
-                // hit the end!
                 return;
             }
             if (self.isBoundary(nextIdx)) {
@@ -348,10 +347,10 @@ pub fn part1(dataDir: std.fs.Dir) !void {
         while (it.next()) |idx| {
             if (idx.i == grid.end.i) {
                 // Reached!
-                std.debug.print("Time taken {}\n", .{ time });
+                std.debug.print("Time taken {}\n", .{time});
                 return;
             }
-            try grid.addNextPos(Pos{ .idx = idx.*, .time = time }, &nextPos);
+            try grid.addNextPos(Pos{ .idx = idx.*, .time = time }, &nextPos, grid.end);
             if (idx.i == 0 or grid.valAfter(idx.*, time + 1).count() == 0) {
                 // if we can stay here, add it
                 try nextPos.put(idx.*, {});
@@ -365,9 +364,50 @@ pub fn part1(dataDir: std.fs.Dir) !void {
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
+    var buffer: [14000000]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buffer);
     const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day24_dummy.txt");
+    const input = try read_input(dataDir, allocator, "day24.txt");
     defer allocator.free(input);
+    var grid = try Grid.init(allocator, input);
+    std.debug.print("grid at t=0:\n{}\n", .{grid});
+
+    // Do BFS
+    var curPos = PosSet.init(allocator);
+    try curPos.put(grid.start, {});
+    var nextPos = std.AutoHashMap(Idx, void).init(allocator);
+    var time: u32 = 0;
+    var goals = [_]Idx{ grid.end, grid.start, grid.end };
+    var curGoalIdx: usize = 0;
+    var curGoal = goals[curGoalIdx];
+    while (true) {
+        var it = curPos.keyIterator();
+        while (it.next()) |idx| {
+            if (idx.i == curGoal.i) {
+                // Reached!
+                std.debug.print("Time taken {}\n", .{time});
+                if (curGoalIdx < 2) {
+                    curGoalIdx += 1;
+                    curGoal = goals[curGoalIdx];
+                    // nextPos will be swapped with curPos
+                    // when we break
+                    nextPos.clearRetainingCapacity();
+                    try nextPos.put(idx.*, {});
+                    // undo the time += 1 that is done later
+                    time -= 1;
+                    break;
+                } else {
+                    return;
+                }
+            }
+            try grid.addNextPos(Pos{ .idx = idx.*, .time = time }, &nextPos, curGoal);
+            if (idx.i == 0 or idx.i == grid.end.i or grid.valAfter(idx.*, time + 1).count() == 0) {
+                // if we can stay here, add it
+                try nextPos.put(idx.*, {});
+            }
+        }
+        curPos.clearRetainingCapacity();
+        std.mem.swap(PosSet, &curPos, &nextPos);
+        time += 1;
+    }
 }
