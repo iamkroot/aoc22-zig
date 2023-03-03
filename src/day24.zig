@@ -294,16 +294,15 @@ const Grid = struct {
             }
         }
     }
-    fn addNextPos(self: *const Self, pos: Pos, queue: *PosQueue) !void {
+    fn addNextPos(self: *const Self, pos: Pos, nextPos: *PosSet) !void {
         // std.debug.print("Adding next poses for {any}\n", .{pos});
         for (Dir.all) |dir| {
             const nextIdx = if (pos.idx.neigh(dir)) |n| n else continue;
             // std.debug.print("\tTesting nextIdx {}\n", .{nextIdx});
             if (nextIdx.i == self.end.i and nextIdx.j == self.end.j) {
                 std.debug.print("ENDDDD {}\n", .{pos.time + 1});
+                try nextPos.put(nextIdx, {});
                 // hit the end!
-                const nextPos = Pos{ .idx = nextIdx, .time = pos.time + 1 };
-                try queue.add(nextPos);
                 return;
             }
             if (self.isBoundary(nextIdx)) {
@@ -312,9 +311,7 @@ const Grid = struct {
             const nextVal = self.valAfter(nextIdx, pos.time + 1);
             // std.debug.print("\t\tnot boundary, val {}\n", .{nextVal});
             if (nextVal.count() == 0) {
-                const nextPos = Pos{ .idx = nextIdx, .time = pos.time + 1 };
-                // std.debug.print("\tpos {any}\n", .{nextPos});
-                try queue.add(nextPos);
+                try nextPos.put(nextIdx, {});
             }
         }
     }
@@ -328,13 +325,12 @@ const Pos = struct {
         return std.math.order(a.time, b.time);
     }
 };
-const PosQueue = std.PriorityQueue(Pos, void, Pos.compareFn);
+const PosSet = std.AutoHashMap(Idx, void);
 
 pub fn part1(dataDir: std.fs.Dir) !void {
-    // var buffer: [14000000]u8 = undefined;
-    // var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    // const allocator = fba.allocator();
-    const allocator = std.heap.page_allocator;
+    var buffer: [14000000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
     const input = try read_input(dataDir, allocator, "day24.txt");
     defer allocator.free(input);
     var grid = try Grid.init(allocator, input);
@@ -343,26 +339,29 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     std.debug.print("grid at t=2:\n{:.2}\n", .{grid});
 
     // Do BFS
-    var q = PosQueue.init(allocator, {});
-    try q.add(Pos{ .idx = grid.start, .time = 0 });
-    var maxTime: u32 = 0;
-    while (q.removeOrNull()) |pos| {
-        if (pos.time > maxTime) {
-            maxTime = pos.time;
-            std.debug.print("time: {} queue size: {}\n", .{ maxTime, q.len });
+    var curPos = PosSet.init(allocator);
+    try curPos.put(grid.start, {});
+    var nextPos = std.AutoHashMap(Idx, void).init(allocator);
+    var time: u32 = 0;
+    while (true) {
+        var it = curPos.keyIterator();
+        while (it.next()) |idx| {
+            if (idx.i == grid.end.i) {
+                // Reached!
+                std.debug.print("Time taken {}\n", .{ time });
+                return;
+            }
+            try grid.addNextPos(Pos{ .idx = idx.*, .time = time }, &nextPos);
+            if (idx.i == 0 or grid.valAfter(idx.*, time + 1).count() == 0) {
+                // if we can stay here, add it
+                try nextPos.put(idx.*, {});
+            }
         }
-        if (pos.idx.i == grid.end.i) {
-            // Reached!
-            std.debug.print("Time taken {}\n", .{pos.time});
-            break;
-        }
-        try grid.addNextPos(pos, &q);
-        if (pos.idx.i == 0 or grid.valAfter(pos.idx, pos.time + 1).count() == 0) {
-            // if we can stay here, add it
-            try q.add(.{ .idx = pos.idx, .time = pos.time + 1 });
-        }
+        curPos.clearRetainingCapacity();
+        std.mem.swap(PosSet, &curPos, &nextPos);
+        time += 1;
     }
-    std.debug.print("END {}!\n", .{maxTime});
+    // std.debug.print("END {}!\n", .{maxTime});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
