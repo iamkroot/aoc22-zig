@@ -192,6 +192,12 @@ const Grid = struct {
         return next;
     }
 
+    fn isBoundary(self: *const Self, idx: Idx) bool {
+        const i = idx.i;
+        const j = idx.j;
+        return i == 0 or i == self.numRows - 1 or j == 0 or j == self.numCols - 1;
+    }
+
     /// Find the idx of cell approaching from `dir` that will be present at given `idx` after `time` turns.
     fn idxAfter(self: *const Self, idx: Idx, dir: Dir, time: u32) Idx {
         if (time == 0) {
@@ -277,7 +283,7 @@ const Grid = struct {
                 var j = @intCast(u32, j_);
                 if ((i == self.start.i and j == self.start.j) or (i == self.end.i and j == self.end.j)) {
                     try writer.writeAll(".");
-                } else if (i == 0 or i == self.numRows - 1 or j == 0 or j == self.numCols - 1) {
+                } else if (self.isBoundary(Idx{ .i = i, .j = j })) {
                     try writer.writeAll("#");
                 } else {
                     try writer.print("{c}", .{self.valAfter(Idx{ .i = i, .j = j }, time)});
@@ -288,17 +294,75 @@ const Grid = struct {
             }
         }
     }
+    fn addNextPos(self: *const Self, pos: Pos, queue: *PosQueue) !void {
+        // std.debug.print("Adding next poses for {any}\n", .{pos});
+        for (Dir.all) |dir| {
+            const nextIdx = if (pos.idx.neigh(dir)) |n| n else continue;
+            // std.debug.print("\tTesting nextIdx {}\n", .{nextIdx});
+            if (nextIdx.i == self.end.i and nextIdx.j == self.end.j) {
+                std.debug.print("ENDDDD {}\n", .{pos.time + 1});
+                // hit the end!
+                const nextPos = Pos{ .idx = nextIdx, .time = pos.time + 1 };
+                try queue.add(nextPos);
+                return;
+            }
+            if (self.isBoundary(nextIdx)) {
+                continue;
+            }
+            const nextVal = self.valAfter(nextIdx, pos.time + 1);
+            // std.debug.print("\t\tnot boundary, val {}\n", .{nextVal});
+            if (nextVal.count() == 0) {
+                const nextPos = Pos{ .idx = nextIdx, .time = pos.time + 1 };
+                // std.debug.print("\tpos {any}\n", .{nextPos});
+                try queue.add(nextPos);
+            }
+        }
+    }
 };
+const Pos = struct {
+    time: u32,
+    idx: Idx,
+    // comptime compareFn: fn(context:Context, a:T, b:T)Order
+    fn compareFn(context: void, a: Pos, b: Pos) std.math.Order {
+        _ = context;
+        return std.math.order(a.time, b.time);
+    }
+};
+const PosQueue = std.PriorityQueue(Pos, void, Pos.compareFn);
 
 pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day24_dummy.txt");
+    // var buffer: [14000000]u8 = undefined;
+    // var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    // const allocator = fba.allocator();
+    const allocator = std.heap.page_allocator;
+    const input = try read_input(dataDir, allocator, "day24.txt");
     defer allocator.free(input);
     var grid = try Grid.init(allocator, input);
     std.debug.print("grid at t=0:\n{}\n", .{grid});
     std.debug.print("grid at t=1:\n{:.1}\n", .{grid});
+    std.debug.print("grid at t=2:\n{:.2}\n", .{grid});
+
+    // Do BFS
+    var q = PosQueue.init(allocator, {});
+    try q.add(Pos{ .idx = grid.start, .time = 0 });
+    var maxTime: u32 = 0;
+    while (q.removeOrNull()) |pos| {
+        if (pos.time > maxTime) {
+            maxTime = pos.time;
+            std.debug.print("time: {} queue size: {}\n", .{ maxTime, q.len });
+        }
+        if (pos.idx.i == grid.end.i) {
+            // Reached!
+            std.debug.print("Time taken {}\n", .{pos.time});
+            break;
+        }
+        try grid.addNextPos(pos, &q);
+        if (pos.idx.i == 0 or grid.valAfter(pos.idx, pos.time + 1).count() == 0) {
+            // if we can stay here, add it
+            try q.add(.{ .idx = pos.idx, .time = pos.time + 1 });
+        }
+    }
+    std.debug.print("END {}!\n", .{maxTime});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
