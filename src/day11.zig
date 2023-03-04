@@ -151,7 +151,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     defer allocator.free(inspectCount);
     std.mem.set(u32, inspectCount, 0);
     while (i < ROUNDS) : (i += 1) {
-        for (monkeys) |*monke, n| {
+        for (monkeys, 0..) |*monke, n| {
             while (monke.items.dequeue()) |origWorry| {
                 inspectCount[n] += 1;
                 var worry = interpOp(monke.op, origWorry);
@@ -161,7 +161,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
                 try monkeys[nextMonke].items.enqueue(worry);
             }
         }
-        for (monkeys) |monke, n| {
+        for (monkeys, 0..) |monke, n| {
             var itemIter = monke.items.start;
             std.debug.print("{}:", .{n});
             while (itemIter) |item| {
@@ -190,7 +190,7 @@ pub fn part2(dataDir: std.fs.Dir) !void {
     defer allocator.free(inspectCount);
     std.mem.set(u32, inspectCount, 0);
     while (i < ROUNDS) : (i += 1) {
-        for (monkeys) |*monke, n| {
+        for (monkeys, 0..) |*monke, n| {
             while (monke.items.dequeue()) |origWorry| {
                 inspectCount[n] += 1;
                 var worry = interpOp(monke.op, origWorry);

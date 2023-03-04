@@ -152,7 +152,7 @@ pub fn part2(dataDir: std.fs.Dir) !void {
     }
     std.sort.sort(el, packets.items, allocator, lessThan);
     var divIdxs: usize = 1;
-    for (packets.items) |p, i| {
+    for (packets.items, 0..) |p, i| {
         if (p.isDivider(2) or p.isDivider(6)) {
             divIdxs *= i + 1;
         }

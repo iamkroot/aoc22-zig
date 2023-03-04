@@ -20,12 +20,12 @@ const ItemCount = struct {
         v.* = 1;
     }
     fn addLine(self: *@This(), line: []const u8) void {
-        for(line) |val| {
+        for (line) |val| {
             self.add(val);
         }
     }
     fn getCommon(self: @This(), other: @This()) u8 {
-        for (self.arr) |v, i| {
+        for (self.arr, 0..) |v, i| {
             if (v > 0 and other.arr[i] > 0) {
                 return @intCast(u8, i) + 1;
             }
@@ -33,7 +33,7 @@ const ItemCount = struct {
         unreachable;
     }
     fn getCommon3(self: @This(), other: @This(), other2: @This()) u8 {
-        for (self.arr) |v, i| {
+        for (self.arr, 0..) |v, i| {
             if (v > 0 and other.arr[i] > 0 and other2.arr[i] > 0) {
                 return @intCast(u8, i) + 1;
             }
@@ -58,7 +58,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
         const commonPriority = ic1.getCommon(ic2);
         total += commonPriority;
     }
-    std.debug.print("total: {}\n", .{ total });
+    std.debug.print("total: {}\n", .{total});
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
@@ -80,5 +80,5 @@ pub fn part2(dataDir: std.fs.Dir) !void {
         const commonPriority = ic1.getCommon3(ic2, ic3);
         total += commonPriority;
     }
-    std.debug.print("total: {}\n", .{ total });
+    std.debug.print("total: {}\n", .{total});
 }

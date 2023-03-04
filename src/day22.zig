@@ -68,7 +68,7 @@ const Cube = struct {
     faces: [6]Face,
     fn fromgrid(allocator: Allocator, side: u32, grid: *const InputGrid) !Self {
         var faces: [6]Face = .{};
-        for (faces) |*face, i| {
+        for (faces, 0..) |*face, i| {
             face.* = Face{ .id = i, .neighs = Neighs.init(allocator), .top_left = undefined, .side = side };
             try face.neighs.ensureTotalCapacity(4);
         }
@@ -128,7 +128,7 @@ const Cube = struct {
         while (q.dequeue()) |faceId| {
             var face = &self.faces[faceId];
             var maybeNeighs: [4]?*Face = .{};
-            for (Facing.allDirsCCW) |dir, i| {
+            for (Facing.allDirsCCW, 0..) |dir, i| {
                 maybeNeighs[i] = if (face.neighs.get(dir)) |id| &self.faces[id] else null;
             }
             var i: usize = 0;

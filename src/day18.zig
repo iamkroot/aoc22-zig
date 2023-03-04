@@ -53,9 +53,9 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     defer allocator.free(points);
 
     var openFaces: u32 = 0;
-    for (points) |p, i| {
+    for (points, 0..) |p, i| {
         var numNeigh: u8 = 0;
-        for (points) |otherp, j| {
+        for (points, 0..) |otherp, j| {
             if (i != j and p.touches(otherp)) {
                 numNeigh += 1;
             }

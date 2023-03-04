@@ -199,7 +199,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
     initMrm(bps);
     std.debug.print("bps{any}\n", .{bps});
     var quality: Size = 0;
-    for (bps) |bp, i| {
+    for (bps, 0..) |bp, i| {
         memo = MemoTable.init(allocator);
         const numGeodes = try maxGeodes(bp, State{}, 24);
         const qual = numGeodes * (@intCast(Size, i) + 1);
@@ -220,7 +220,7 @@ pub fn part2(dataDir: std.fs.Dir) !void {
     initMrm(bps[0..3]);
 
     var quality: u64 = 1;
-    for (bps[0..std.math.min(3, bps.len)]) |bp, i| {
+    for (bps[0..std.math.min(3, bps.len)], 0..) |bp, i| {
         memo = MemoTable.init(allocator);
         const numGeodes = try maxGeodes(bp, State{}, 32);
         std.debug.print("quality: {} {}\n", .{ i, numGeodes });

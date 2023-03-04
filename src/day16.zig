@@ -14,7 +14,7 @@ const Input = struct {
     num_nonzero: u8,
 
     fn insert_name(ng: []Name, name: []const u8, num_names: *u8) u8 {
-        for (ng[0..num_names.*]) |name2, i| {
+        for (ng[0..num_names.*], 0..) |name2, i| {
             if (std.mem.eql(u8, name, &name2)) {
                 return @intCast(u8, i);
             }

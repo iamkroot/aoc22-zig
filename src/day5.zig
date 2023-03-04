@@ -33,7 +33,7 @@ const Stacks = struct {
     }
 
     fn appendLine(self: *Stacks, linelist: []const u8) !void {
-        for (linelist) |v, i| {
+        for (linelist, 0..) |v, i| {
             if (v != 32) {
                 // we store them in reverse order of stack
                 try self.stacks[i].append(v);
@@ -81,7 +81,7 @@ const Stacks = struct {
 
     fn top(self: Stacks, allocator: std.mem.Allocator) ![]const u8 {
         var vals = try allocator.alloc(u8, self.numStacks);
-        for (self.stacks) |stack, i| {
+        for (self.stacks, 0..) |stack, i| {
             vals[i] = stack.items[stack.items.len - 1];
         }
         return vals;
@@ -109,7 +109,7 @@ const Stacks = struct {
         var height = maxHeight;
 
         while (height > 0) : (height -= 1) {
-            for (self.stacks) |stack, stackNum| {
+            for (self.stacks, 0..) |stack, stackNum| {
                 if (stack.items.len >= height) {
                     var idx: usize = undefined;
                     if (!self.constructed) {
@@ -128,7 +128,7 @@ const Stacks = struct {
             }
             try writer.writeAll("\n");
         }
-        for (self.stacks) |_, stackNum| {
+        for (self.stacks, 0..) |_, stackNum| {
             try writer.print(" {d} ", .{stackNum + 1});
             if (stackNum < self.numStacks + 1) {
                 try writer.writeAll(" ");
@@ -192,7 +192,6 @@ pub fn run(dataDir: std.fs.Dir, ispart1: bool) !void {
             try stacks.move(numMove, from, to);
         } else {
             try stacks.move2(numMove, from, to);
-
         }
     }
     std.debug.print("top: {s}\n", .{try stacks.top(allocator)});

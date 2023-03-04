@@ -40,7 +40,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
 }
 
 fn printGrid(grid: []const u8) void {
-    for (grid) |c, i| {
+    for (grid, 0..) |c, i| {
         std.debug.print("{c}", .{c});
         if (i % 40 == 39) {
             std.debug.print("\n", .{});

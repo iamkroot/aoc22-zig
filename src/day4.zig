@@ -57,8 +57,7 @@ pub fn part2(dataDir: std.fs.Dir) !void {
     var overlapCount: u32 = 0;
     while (lines.next()) |line| {
         const pair = parseLine(line);
-        if (!((pair.start1 > pair.end2) or (pair.end1 < pair.start2)))
-        {
+        if (!((pair.start1 > pair.end2) or (pair.end1 < pair.start2))) {
             overlapCount += 1;
         }
     }
