@@ -47,7 +47,7 @@ pub fn MakeParser(comptime pattern: []const u8, comptime IntTy: type) type {
             }
             var tups: TupTy = .{0} ** n;
             var j: usize = 0;
-            inline for (lens) |len, i| {
+            inline for (lens, 0..) |len, i| {
                 if (i == n) {
                     break;
                 }
