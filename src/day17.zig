@@ -120,6 +120,9 @@ const Grid = struct {
     const Self = @This();
     const Row = std.bit_set.IntegerBitSet(WIDTH);
     grid: std.ArrayList(Row),
+    baseRowIdx: usize = 0,
+    /// current height of each column
+    ceiling: [WIDTH]usize = [_]usize{0} ** WIDTH,
 
     fn new(allocator: std.mem.Allocator) !Self {
         var grid = try std.ArrayList(Row).initCapacity(allocator, 4096);
@@ -153,6 +156,12 @@ const Grid = struct {
         try writer.print("{s}", .{lines});
         try writer.writeAll("+\n");
     }
+
+    const MAX_NUM_ROWS: usize = 102400;
+    // fn getRow(self: *Self, rowNum: usize) !*Row {
+    //     const actualRow = rowNum % MAX_NUM_ROWS;
+    // }
+
     fn extendIfNeeded(self: *Self, maxRow: usize) !void {
         if (maxRow >= self.grid.items.len) {
             try self.grid.appendNTimes(Row.initEmpty(), maxRow - self.grid.items.len + 1);
@@ -167,12 +176,14 @@ const Grid = struct {
             var j: u32 = 0;
             while (j < RockSprite.W) : (j += 1) {
                 std.debug.assert(pos.row - 1 >= i);
-                var r: *Row = &self.grid.items[pos.row - 1 - i];
+                const rowIdx = pos.row - 1 - i;
+                var r: *Row = &self.grid.items[rowIdx];
                 if (rock.grid[i * RockSprite.W + j]) {
                     const index = j + pos.col - 1;
                     std.debug.assert(index < WIDTH);
                     std.debug.assert(!r.isSet(index));
                     r.set(index);
+                    self.ceiling[index] = std.math.max(self.ceiling[index], rowIdx + 1);
                 }
             }
         }
@@ -204,27 +215,41 @@ const Grid = struct {
         }
         return null;
     }
+    fn ceilNorm(self: Self) [WIDTH]usize {
+        var ceilMin = self.ceiling[0];
+        for (self.ceiling[1..]) |v| {
+            ceilMin = std.math.min(ceilMin, v);
+        }
+        var minCeil = self.ceiling;
+        for (&minCeil) |*v| {
+            v.* -= ceilMin;
+        }
+        return minCeil;
+    }
 };
 
-pub fn part1(dataDir: std.fs.Dir) !void {
-    var buffer: [24000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
-    const input = try read_input(dataDir, allocator, "day17.txt");
-    defer allocator.free(input);
-    const inp = std.mem.trim(u8, input, "\n");
-    const winds: []const Dir = @ptrCast([*]const Dir, inp.ptr)[0..inp.len];
-
+fn rocksFall(allocator: std.mem.Allocator, winds: []const Dir, target_num_rocks: usize) !void {
     var grid = try Grid.new(allocator);
 
-    const NUM_ROCKS: u32 = 2022;
-    var numRocks: u32 = 0;
-    var spriteIdx: usize = 0;
+    var numRocks: usize = 0;
     var windIdx: usize = 0;
-    var maxHeight: usize = 0;
-    while (numRocks < NUM_ROCKS) : (numRocks += 1) {
+    var curHeight: usize = 0;
+    const Key = struct {
+        ceiling: [WIDTH]usize,
+        spriteIdx: usize,
+        windIdx: usize,
+    };
+    const Val = struct { rocks: usize, height: usize };
+
+    var memo = std.AutoHashMap(Key, Val).init(allocator);
+    var found: bool = false;
+    defer memo.deinit();
+    var ceils = std.AutoHashMap([WIDTH]usize, [WIDTH]usize).init(allocator);
+    defer ceils.deinit();
+    while (numRocks < target_num_rocks) : (numRocks += 1) {
+        const spriteIdx = numRocks % ROCKS.len;
         const rock = &ROCKS[spriteIdx];
-        const nextRockRow = maxHeight + 3 + rock.height;
+        const nextRockRow = curHeight + 3 + rock.height;
         const startPos = Pos{ .row = nextRockRow, .col = 3 };
         // std.debug.print("startPos: {}, spriteIdx {}\n", .{ startPos, spriteIdx });
         try grid.extendIfNeeded(nextRockRow);
@@ -233,6 +258,7 @@ pub fn part1(dataDir: std.fs.Dir) !void {
             var dir = winds[windIdx];
             windIdx += 1;
             windIdx %= winds.len;
+
             // std.debug.print("dir: {}\n", .{ dir });
             if (grid.canMove(rock, pos, dir)) |newPos| {
                 pos = newPos;
@@ -246,22 +272,82 @@ pub fn part1(dataDir: std.fs.Dir) !void {
                 // std.debug.print("moved down to: {}\n", .{pos});
             } else {
                 // std.debug.print("stopped at: {}\n", .{pos});
-                maxHeight = std.math.max(maxHeight, pos.row);
+                curHeight = std.math.max(curHeight, pos.row);
                 try grid.put(rock.*, pos);
+                if (!found and spriteIdx == 0) {
+                    const minCeil = grid.ceilNorm();
+                    // {
+                    //     const r = try ceils.getOrPut(minCeil);
+                    //     if (r.found_existing) {
+                    //         // std.debug.print("dup! ceiling: {any} {any}\n", .{ r.value_ptr.*, grid.ceiling });
+                    //     } else {
+                    //         r.value_ptr.* = minCeil;
+                    //     }
+                    // }
+                    {
+                        const r = try memo.getOrPut(Key{ .ceiling = minCeil, .spriteIdx = 0, .windIdx = windIdx });
+                        if (r.found_existing) {
+                            found = true;
+                            const cycleRepeat = numRocks - r.value_ptr.rocks;
+                            const cycleHeight = curHeight - r.value_ptr.height;
+                            std.debug.print("dup! {} {} {}\n", .{ r.value_ptr.rocks, numRocks, cycleRepeat });
+                            std.debug.print("{} {} {}\n", .{ r.value_ptr.height, curHeight, cycleHeight });
+                            const numRemainingRocks = target_num_rocks - numRocks;
+                            const numRemainingCycles = numRemainingRocks / cycleRepeat;
+                            // const numRemainingCycles = @divFloor(numRemainingRocks, cycleRepeat);
+                            const jumpHeight = numRemainingCycles * cycleHeight;
+                            const jumpRocks = numRemainingCycles * cycleRepeat;
+                            numRocks += jumpRocks;
+                            const oldHeight = curHeight;
+                            curHeight += jumpHeight;
+                            std.debug.print("rem rocks {} cycles {} jump Height {} rocks {} final {} {}\n", .{ numRemainingRocks, numRemainingCycles, jumpHeight, jumpRocks, curHeight, numRocks });
+                            // copy over the last few rows
+                            try grid.extendIfNeeded(curHeight + 1);
+                            std.mem.copy(Grid.Row, grid.grid.items[curHeight-30..curHeight + 1], grid.grid.items[oldHeight - 30..oldHeight+1]);
+                            r.value_ptr.rocks = numRocks;
+                            r.value_ptr.height = curHeight;
+                        } else {
+                            r.value_ptr.rocks = numRocks;
+                            r.value_ptr.height = curHeight;
+                        }
+                    }
+                }
                 // std.debug.print("grid:\n{}\n", .{grid});
+
                 break;
             }
         }
-        spriteIdx += 1;
-        spriteIdx %= ROCKS.len;
     }
-    std.debug.print("height: {}\n", .{maxHeight});
+    std.debug.print("target: {} height: {}\n", .{ target_num_rocks, curHeight });
+}
+
+pub fn part1(dataDir: std.fs.Dir) !void {
+    // var buffer: [24000]u8 = undefined;
+    // var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    // const allocator = fba.allocator();
+    const allocator = std.heap.page_allocator;
+    const input = try read_input(dataDir, allocator, "day17.txt");
+    defer allocator.free(input);
+    const inp = std.mem.trim(u8, input, "\n");
+    const winds: []const Dir = @ptrCast([*]const Dir, inp.ptr)[0..inp.len];
+    try rocksFall(allocator, winds, 2022);
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    var buffer: [14000]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    const allocator = fba.allocator();
+    const allocator = std.heap.page_allocator;
     const input = try read_input(dataDir, allocator, "day17_dummy.txt");
     defer allocator.free(input);
+    const inp = std.mem.trim(u8, input, "\n");
+    const winds: []const Dir = @ptrCast([*]const Dir, inp.ptr)[0..inp.len];
+
+    try rocksFall(allocator, winds, 999_999);
+    try rocksFall(allocator, winds, 1000_000);
+    try rocksFall(allocator, winds, 5000_000);
+    try rocksFall(allocator, winds, 1999_998);
+    try rocksFall(allocator, winds, 1999_999);
+    try rocksFall(allocator, winds, 2000_000);
+    try rocksFall(allocator, winds, 2000_002);
+
+    // try rocksFall(allocator, winds, 1000_000_000);
+    // try rocksFall(allocator, winds, 1_000_000_000_000);
 }
