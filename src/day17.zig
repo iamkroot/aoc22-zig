@@ -125,7 +125,6 @@ const Grid = struct {
     ceiling: [WIDTH]usize = [_]usize{0} ** WIDTH,
 
     fn new(allocator: std.mem.Allocator) !Self {
-        // var grid = try std.ArrayList(Row).initCapacity(allocator, 4096);
         var grid = std.AutoHashMap(usize, Row).init(allocator);
         return Self{ .grid = grid };
     }
@@ -138,20 +137,6 @@ const Grid = struct {
     ) !void {
         _ = fmt;
         _ = options;
-        // var i: usize = self.grid.items.len;
-        // while (i > 0) {
-        //     i -= 1;
-        //     const row: Row = self.grid.items[i];
-        //     try writer.print("{d:2}:", .{i});
-
-        //     try writer.writeAll("|");
-        //     var j: usize = 0;
-        //     while (j < WIDTH) : (j += 1) {
-        //         const c: u8 = if (row.isSet(j)) '#' else '.';
-        //         try writer.print("{c}", .{c});
-        //     }
-        //     try writer.writeAll("|\n");
-        // }
         _ = self;
         try writer.writeAll("   +");
         const lines = [_]u8{'-'} ** WIDTH;
@@ -160,24 +145,9 @@ const Grid = struct {
     }
 
     const MAX_NUM_ROWS: usize = 102400;
-    // fn getRow(self: *Self, rowNum: usize) !*Row {
-    //     const actualRow = rowNum % MAX_NUM_ROWS;
-    // }
-
-    fn extendIfNeeded(self: *Self, maxRow: usize) !void {
-        _ = maxRow;
-        _ = self;
-        // if (maxRow >= self.grid.items.len) {
-        //     try self.grid.appendNTimes(Row.initEmpty(), maxRow - self.grid.items.len + 1);
-        // }
-        // for(maxRow..)
-
-        // self.grid.getOrPutValue(key: K, value: V)
-    }
 
     /// Place the rock on the grid given its top-left coordinates (1-indexed)
     fn put(self: *Self, rock: RockSprite, pos: Pos) !void {
-        // try self.extendIfNeeded(pos.row - 1);
         var i: u32 = 0;
         while (i < rock.height) : (i += 1) {
             var j: u32 = 0;
@@ -201,17 +171,12 @@ const Grid = struct {
         } 
         if (self.grid.get(pos.row - 1))|row| {
             return row.isSet(pos.col - 1);
-            // return true;
-        } else {
-            // std.debug.print("NULL!! {}\n", .{pos.col - 1});
-            // unreachable;
         }
         return false;
     }
     fn canPut(self: *const Self, rock: *const RockSprite, pos: Pos) bool {
         var iter = RockSprite.RocksIter.init(rock, pos);
         while (iter.next()) |p| {
-            // std.debug.print("p: {}\n", .{ p });
             if (self.isRockOrBoundary(p)) {
                 return false;
             }
@@ -263,60 +228,37 @@ fn rocksFall(allocator: std.mem.Allocator, winds: []const Dir, target_num_rocks:
         const rock = &ROCKS[spriteIdx];
         const nextRockRow = curHeight + 3 + rock.height;
         const startPos = Pos{ .row = nextRockRow, .col = 3 };
-        // std.debug.print("startPos: {}, spriteIdx {}\n", .{ startPos, spriteIdx });
-        // try grid.extendIfNeeded(nextRockRow);
         var pos = startPos;
         while (true) {
             var dir = winds[windIdx];
             windIdx += 1;
             windIdx %= winds.len;
 
-            // std.debug.print("dir: {}\n", .{ dir });
             if (grid.canMove(rock, pos, dir)) |newPos| {
                 pos = newPos;
-                // std.debug.print("moved to: {}\n", .{pos});
-            } else {
-                // std.debug.print("could not move {}\n", .{ dir });
             }
             // fall down
             if (grid.canMove(rock, pos, Dir.Down)) |newPos| {
                 pos = newPos;
-                // std.debug.print("moved down to: {}\n", .{pos});
             } else {
-                // std.debug.print("stopped at: {}\n", .{pos});
                 curHeight = std.math.max(curHeight, pos.row);
                 try grid.put(rock.*, pos);
                 if (!found and spriteIdx == 0) {
                     const minCeil = grid.ceilNorm();
-                    // {
-                    //     const r = try ceils.getOrPut(minCeil);
-                    //     if (r.found_existing) {
-                    //         // std.debug.print("dup! ceiling: {any} {any}\n", .{ r.value_ptr.*, grid.ceiling });
-                    //     } else {
-                    //         r.value_ptr.* = minCeil;
-                    //     }
-                    // }
                     {
                         const r = try memo.getOrPut(Key{ .ceiling = minCeil, .spriteIdx = 0, .windIdx = windIdx });
                         if (r.found_existing) {
                             found = true;
                             const cycleRepeat = numRocks - r.value_ptr.rocks;
                             const cycleHeight = curHeight - r.value_ptr.height;
-                            std.debug.print("dup! {} {} {}\n", .{ r.value_ptr.rocks, numRocks, cycleRepeat });
-                            std.debug.print("{} {} {}\n", .{ r.value_ptr.height, curHeight, cycleHeight });
                             const numRemainingRocks = target_num_rocks - numRocks;
                             const numRemainingCycles = numRemainingRocks / cycleRepeat;
-                            // const numRemainingCycles = @divFloor(numRemainingRocks, cycleRepeat);
                             const jumpHeight = numRemainingCycles * cycleHeight;
                             const jumpRocks = numRemainingCycles * cycleRepeat;
                             numRocks += jumpRocks;
                             const oldHeight = curHeight;
                             curHeight += jumpHeight;
-                            std.debug.print("rem rocks {} cycles {} jump Height {} rocks {} final {} {}\n", .{ numRemainingRocks, numRemainingCycles, jumpHeight, jumpRocks, curHeight, numRocks });
                             // copy over the last few rows
-                            // try grid.extendIfNeeded(curHeight + 1);
-                            // std.mem.copy(Grid.Row, grid.grid.items[curHeight-30..curHeight + 1], grid.grid.items[oldHeight - 30..oldHeight+1]);
-                            // std.mem.copy(Grid.Row, grid.grid.items[curHeight-30..curHeight + 1], grid.grid.items[oldHeight - 30..oldHeight+1]);
                             for (0..31) |i| {
                                 try grid.grid.put(curHeight - 30 + i, if (grid.grid.get(oldHeight - 30 + i)) |row| row else Grid.Row.initEmpty());
                             }
@@ -328,7 +270,6 @@ fn rocksFall(allocator: std.mem.Allocator, winds: []const Dir, target_num_rocks:
                         }
                     }
                 }
-                // std.debug.print("grid:\n{}\n", .{grid});
 
                 break;
             }
@@ -338,10 +279,9 @@ fn rocksFall(allocator: std.mem.Allocator, winds: []const Dir, target_num_rocks:
 }
 
 pub fn part1(dataDir: std.fs.Dir) !void {
-    // var buffer: [24000]u8 = undefined;
-    // var fba = std.heap.FixedBufferAllocator.init(&buffer);
-    // const allocator = fba.allocator();
-    const allocator = std.heap.page_allocator;
+    var buffer: [240000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
     const input = try read_input(dataDir, allocator, "day17.txt");
     defer allocator.free(input);
     const inp = std.mem.trim(u8, input, "\n");
@@ -350,20 +290,13 @@ pub fn part1(dataDir: std.fs.Dir) !void {
 }
 
 pub fn part2(dataDir: std.fs.Dir) !void {
-    const allocator = std.heap.page_allocator;
+    var buffer: [2400000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
     const input = try read_input(dataDir, allocator, "day17.txt");
     defer allocator.free(input);
     const inp = std.mem.trim(u8, input, "\n");
     const winds: []const Dir = @ptrCast([*]const Dir, inp.ptr)[0..inp.len];
 
-    try rocksFall(allocator, winds, 999_999);
-    try rocksFall(allocator, winds, 1000_000);
-    try rocksFall(allocator, winds, 5000_000);
-    try rocksFall(allocator, winds, 1999_998);
-    try rocksFall(allocator, winds, 1999_999);
-    try rocksFall(allocator, winds, 2000_000);
-    try rocksFall(allocator, winds, 2000_002);
-
-    // try rocksFall(allocator, winds, 1000_000_000);
     try rocksFall(allocator, winds, 1_000_000_000_000);
 }
