@@ -130,7 +130,7 @@ pub fn part2(dataDir: std.fs.Dir) !void {
         while (step <= numSteps) : (step += 1) {
             const newHeadPos = curHeadPos.move(headDir);
             curHeadPos = newHeadPos;
-            for (knots, 0..) |*knot, i| {
+            for (&knots, 0..) |*knot, i| {
                 const target = blk: {
                     if (i == 0) {
                         break :blk newHeadPos;
